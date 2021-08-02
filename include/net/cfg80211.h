@@ -1268,12 +1268,10 @@ struct cfg80211_scan_request {
 /**
  * struct cfg80211_match_set - sets of attributes to match
  *
- * @ssid: SSID to be matched; may be zero-length for no match (RSSI only)
- * @rssi_thold: don't report scan results below this threshold (in s32 dBm)
+ * @ssid: SSID to be matched
  */
 struct cfg80211_match_set {
 	struct cfg80211_ssid ssid;
-	s32 rssi_thold;
 };
 
 /**
@@ -1295,10 +1293,7 @@ struct cfg80211_match_set {
  * @dev: the interface
  * @scan_start: start time of the scheduled scan
  * @channels: channels to scan
- * @min_rssi_thold: for drivers only supporting a single threshold, this
- *	contains the minimum over all matchsets
- * @owner_nlportid: netlink portid of owner (if this should is a request
- *	owned by a particular socket)
+ * @rssi_thold: don't report scan results below this threshold (in s32 dBm)
  */
 struct cfg80211_sched_scan_request {
 	struct cfg80211_ssid *ssids;
@@ -1310,14 +1305,12 @@ struct cfg80211_sched_scan_request {
 	u32 flags;
 	struct cfg80211_match_set *match_sets;
 	int n_match_sets;
-	s32 min_rssi_thold;
-	s32 rssi_thold; /* just for backward compatible */
+	s32 rssi_thold;
 
 	/* internal */
 	struct wiphy *wiphy;
 	struct net_device *dev;
 	unsigned long scan_start;
-	u32 owner_nlportid;
 
 	/* keep last */
 	struct ieee80211_channel *channels[0];
@@ -2261,28 +2254,22 @@ struct cfg80211_ops {
  * enum wiphy_flags - wiphy capability flags
  *
  * @WIPHY_FLAG_CUSTOM_REGULATORY:  tells us the driver for this device
- *	has its own custom regulatory domain and cannot identify the
- *	ISO / IEC 3166 alpha2 it belongs to. When this is enabled
- *	we will disregard the first regulatory hint (when the
- *	initiator is %REGDOM_SET_BY_CORE). wiphys can set the custom
- *	regulatory domain using wiphy_apply_custom_regulatory()
- *	prior to wiphy registration.
- * @WIPHY_FLAG_STRICT_REGULATORY: tells us that the wiphy for this device
- *	has regulatory domain that it wishes to be considered as the
- *	superset for regulatory rules. After this device gets its regulatory
- *	domain programmed further regulatory hints shall only be considered
- *	for this device to enhance regulatory compliance, forcing the
- *	device to only possibly use subsets of the original regulatory
- *	rules. For example if channel 13 and 14 are disabled by this
- *	device's regulatory domain no user specified regulatory hint which
- *	has these channels enabled would enable them for this wiphy,
- *	the device's original regulatory domain will be trusted as the
- *	base. You can program the superset of regulatory rules for this
- *	wiphy with regulatory_hint() for cards programmed with an
- *	ISO3166-alpha2 country code. wiphys that use regulatory_hint()
- *	will have their wiphy->regd programmed once the regulatory
- *	domain is set, and all other regulatory hints will be ignored
- *	until their own regulatory domain gets programmed.
+ * 	has its own custom regulatory domain and cannot identify the
+ * 	ISO / IEC 3166 alpha2 it belongs to. When this is enabled
+ * 	we will disregard the first regulatory hint (when the
+ * 	initiator is %REGDOM_SET_BY_CORE).
+ * @WIPHY_FLAG_STRICT_REGULATORY: tells us the driver for this device will
+ *	ignore regulatory domain settings until it gets its own regulatory
+ *	domain via its regulatory_hint() unless the regulatory hint is
+ *	from a country IE. After its gets its own regulatory domain it will
+ *	only allow further regulatory domain settings to further enhance
+ *	compliance. For example if channel 13 and 14 are disabled by this
+ *	regulatory domain no user regulatory domain can enable these channels
+ *	at a later time. This can be used for devices which do not have
+ *	calibration information guaranteed for frequencies or settings
+ *	outside of its regulatory domain. If used in combination with
+ *	WIPHY_FLAG_CUSTOM_REGULATORY the inspected country IE power settings
+ *	will be followed.
  * @WIPHY_FLAG_DISABLE_BEACON_HINTS: enable this if your driver needs to ensure
  *	that passive scan flags and beaconing flags may not be lifted by
  *	cfg80211 due to regulatory beacon hints. For more information on beacon
@@ -2479,6 +2466,7 @@ struct wiphy_wowlan_support {
 	const struct wiphy_wowlan_tcp_support *tcp;
 };
 
+#ifdef CONFIG_CFG80211_SUPPORT_VENDOR_COMMANDS
 /**
  * enum wiphy_vendor_command_flags - validation flags for vendor commands
  * @WIPHY_VENDOR_CMD_NEED_WDEV: vendor command requires wdev
@@ -2506,6 +2494,7 @@ struct wiphy_vendor_command {
 	int (*doit)(struct wiphy *wiphy, struct wireless_dev *wdev,
 		    const void *data, int data_len);
 };
+#endif
 
 /**
  * struct wiphy - wireless hardware description
@@ -2614,12 +2603,6 @@ struct wiphy_vendor_command {
  *	802.11-2012 8.4.2.29 for the defined fields.
  * @extended_capabilities_mask: mask of the valid values
  * @extended_capabilities_len: length of the extended capabilities
- * @country_ie_pref: country IE processing preferences specified
- *	by enum nl80211_country_ie_pref
- * @vendor_commands: array of vendor commands supported by the hardware
- * @n_vendor_commands: number of vendor commands
- * @vendor_events: array of vendor events supported by the hardware
- * @n_vendor_events: number of vendor events
  */
 struct wiphy {
 	/* assign these fields before you register the wiphy */
@@ -2689,8 +2672,6 @@ struct wiphy {
 	const u8 *extended_capabilities, *extended_capabilities_mask;
 	u8 extended_capabilities_len;
 
-	u8 country_ie_pref;
-
 	/* If multiple wiphys are registered and you're handed e.g.
 	 * a regular netdev with assigned ieee80211_ptr, you won't
 	 * know whether it points to a wiphy your driver has registered
@@ -2729,11 +2710,11 @@ struct wiphy {
 #ifdef CONFIG_CFG80211_WEXT
 	const struct iw_handler_def *wext;
 #endif
-
+#ifdef CONFIG_CFG80211_SUPPORT_VENDOR_COMMANDS
 	const struct wiphy_vendor_command *vendor_commands;
 	const struct nl80211_vendor_cmd_info *vendor_events;
 	int n_vendor_commands, n_vendor_events;
-
+#endif
 	char priv[0] __aligned(NETDEV_ALIGN);
 };
 
@@ -2895,7 +2876,6 @@ struct cfg80211_cached_keys;
  * @p2p_started: true if this is a P2P Device that has been started
  * @cac_started: true if DFS channel availability check has been started
  * @cac_start_time: timestamp (jiffies) when the dfs state was entered.
- * @owner_nlportid: (private) owner socket port ID
  */
 struct wireless_dev {
 	struct wiphy *wiphy;
@@ -2949,8 +2929,6 @@ struct wireless_dev {
 
 	bool cac_started;
 	unsigned long cac_start_time;
-
-	u32 owner_nlportid;
 
 #ifdef CONFIG_CFG80211_WEXT
 	/* wext data */
@@ -3647,6 +3625,7 @@ void wiphy_rfkill_start_polling(struct wiphy *wiphy);
  */
 void wiphy_rfkill_stop_polling(struct wiphy *wiphy);
 
+#ifdef CONFIG_CFG80211_SUPPORT_VENDOR_COMMANDS
 /**
  * DOC: Vendor commands
  *
@@ -3695,8 +3674,8 @@ void __cfg80211_send_event_skb(struct sk_buff *skb, gfp_t gfp);
  * nla_put() or similar) will end up being within the
  * %NL80211_ATTR_VENDOR_DATA attribute, so all that needs to be done
  * with the skb is adding data for the corresponding userspace tool
- * which can then read that data out of the testdata attribute. You
- * must not modify the skb in any other way.
+ * which can then read that data out of the vendor data attribute.
+ * You must not modify the skb in any other way.
  *
  * When done, call cfg80211_vendor_cmd_reply() with the skb and return
  * its error code as the result of the doit() operation.
@@ -3761,6 +3740,7 @@ static inline void cfg80211_vendor_event(struct sk_buff *skb, gfp_t gfp)
 {
 	__cfg80211_send_event_skb(skb, gfp);
 }
+#endif
 
 #ifdef CONFIG_NL80211_TESTMODE
 /**
@@ -3797,12 +3777,8 @@ static inline void cfg80211_vendor_event(struct sk_buff *skb, gfp_t gfp)
  *
  * Return: An allocated and pre-filled skb. %NULL if any errors happen.
  */
-static inline struct sk_buff *
-cfg80211_testmode_alloc_reply_skb(struct wiphy *wiphy, int approxlen)
-{
-	return __cfg80211_alloc_reply_skb(wiphy, NL80211_CMD_TESTMODE,
-					  NL80211_ATTR_TESTDATA, approxlen);
-}
+struct sk_buff *cfg80211_testmode_alloc_reply_skb(struct wiphy *wiphy,
+						  int approxlen);
 
 /**
  * cfg80211_testmode_reply - send the reply skb
@@ -3816,10 +3792,7 @@ cfg80211_testmode_alloc_reply_skb(struct wiphy *wiphy, int approxlen)
  *
  * Return: An error code or 0 on success.
  */
-static inline int cfg80211_testmode_reply(struct sk_buff *skb)
-{
-	return cfg80211_vendor_cmd_reply(skb);
-}
+int cfg80211_testmode_reply(struct sk_buff *skb);
 
 /**
  * cfg80211_testmode_alloc_event_skb - allocate testmode event
@@ -3842,13 +3815,8 @@ static inline int cfg80211_testmode_reply(struct sk_buff *skb)
  *
  * Return: An allocated and pre-filled skb. %NULL if any errors happen.
  */
-static inline struct sk_buff *
-cfg80211_testmode_alloc_event_skb(struct wiphy *wiphy, int approxlen, gfp_t gfp)
-{
-	return __cfg80211_alloc_event_skb(wiphy, NL80211_CMD_TESTMODE,
-					  NL80211_ATTR_TESTDATA, -1,
-					  approxlen, gfp);
-}
+struct sk_buff *cfg80211_testmode_alloc_event_skb(struct wiphy *wiphy,
+						  int approxlen, gfp_t gfp);
 
 /**
  * cfg80211_testmode_event - send the event
@@ -3860,10 +3828,7 @@ cfg80211_testmode_alloc_event_skb(struct wiphy *wiphy, int approxlen, gfp_t gfp)
  * by cfg80211_testmode_alloc_event_skb(), as an event. It always
  * consumes it.
  */
-static inline void cfg80211_testmode_event(struct sk_buff *skb, gfp_t gfp)
-{
-	__cfg80211_send_event_skb(skb, gfp);
-}
+void cfg80211_testmode_event(struct sk_buff *skb, gfp_t gfp);
 
 #define CFG80211_TESTMODE_CMD(cmd)	.testmode_cmd = (cmd),
 #define CFG80211_TESTMODE_DUMP(cmd)	.testmode_dump = (cmd),

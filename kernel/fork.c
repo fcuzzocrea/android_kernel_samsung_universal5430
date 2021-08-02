@@ -721,7 +721,8 @@ struct mm_struct *mm_access(struct task_struct *task, unsigned int mode)
 
 	mm = get_task_mm(task);
 	if (mm && mm != current->mm &&
-			!ptrace_may_access(task, mode)) {
+			!ptrace_may_access(task, mode) &&
+			!capable(CAP_SYS_RESOURCE)) {
 		mmput(mm);
 		mm = ERR_PTR(-EACCES);
 	}
@@ -1184,6 +1185,14 @@ static void posix_cpu_timers_init(struct task_struct *tsk)
 	INIT_LIST_HEAD(&tsk->cpu_timers[2]);
 }
 
+#ifdef CONFIG_TIMA_RKP_RO_CRED
+void rkp_assign_pgd(struct task_struct *p)
+{
+	unsigned int pgd;
+	pgd = (unsigned int)(p->mm ? p->mm->pgd :swapper_pg_dir);
+	tima_send_cmd2((unsigned int)p->cred, (unsigned int)pgd, 0x43);
+}
+#endif /*CONFIG_TIMA_RKP_RO_CRED*/
 /*
  * This creates a new process as a copy of the old one,
  * but does not actually start it yet.
@@ -1296,7 +1305,6 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 
 	p->utime = p->stime = p->gtime = 0;
 	p->utimescaled = p->stimescaled = 0;
-	p->cpu_power = 0;
 #ifndef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
 	p->prev_cputime.utime = p->prev_cputime.stime = 0;
 #endif
@@ -1515,14 +1523,6 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 		goto bad_fork_free_pid;
 	}
 
-	if (clone_flags & CLONE_THREAD) {
-		current->signal->nr_threads++;
-		atomic_inc(&current->signal->live);
-		atomic_inc(&current->signal->sigcnt);
-		p->group_leader = current->group_leader;
-		list_add_tail_rcu(&p->thread_group, &p->group_leader->thread_group);
-	}
-
 	if (likely(p->pid)) {
 		ptrace_init_task(p, (clone_flags & CLONE_PTRACE) || trace);
 
@@ -1540,6 +1540,12 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 			list_add_tail_rcu(&p->tasks, &init_task.tasks);
 			__this_cpu_inc(process_counts);
 		} else {
+			current->signal->nr_threads++;
+			atomic_inc(&current->signal->live);
+			atomic_inc(&current->signal->sigcnt);
+			p->group_leader = current->group_leader;
+			list_add_tail_rcu(&p->thread_group,
+					  &p->group_leader->thread_group);
 			list_add_tail_rcu(&p->thread_node,
 					  &p->signal->thread_head);
 		}
@@ -1557,6 +1563,10 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	perf_event_fork(p);
 
 	trace_task_newtask(p, clone_flags);
+#ifdef CONFIG_TIMA_RKP_RO_CRED
+	if(rkp_cred_enable)
+		rkp_assign_pgd(p);
+#endif/*CONFIG_TIMA_RKP_RO_CRED*/
 
 	return p;
 
@@ -1747,6 +1757,12 @@ SYSCALL_DEFINE5(clone, unsigned long, newsp, unsigned long, clone_flags,
 		 int __user *, parent_tidptr,
 		 int __user *, child_tidptr,
 		 int, tls_val)
+#elif defined(CONFIG_CLONE_BACKWARDS3)
+SYSCALL_DEFINE6(clone, unsigned long, clone_flags, unsigned long, newsp,
+		int, stack_size,
+		int __user *, parent_tidptr,
+		int __user *, child_tidptr,
+		int, tls_val)
 #else
 SYSCALL_DEFINE5(clone, unsigned long, clone_flags, unsigned long, newsp,
 		 int __user *, parent_tidptr,

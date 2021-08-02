@@ -3186,11 +3186,11 @@ int memcg_register_cache(struct mem_cgroup *memcg, struct kmem_cache *s,
 	if (!s->memcg_params)
 		return -ENOMEM;
 
-	INIT_WORK(&s->memcg_params->destroy,
-			kmem_cache_destroy_work_func);
 	if (memcg) {
 		s->memcg_params->memcg = memcg;
 		s->memcg_params->root_cache = root_cache;
+		INIT_WORK(&s->memcg_params->destroy,
+				kmem_cache_destroy_work_func);
 	} else
 		s->memcg_params->is_root_cache = true;
 
@@ -5752,17 +5752,16 @@ static void mem_cgroup_usage_unregister_event(struct cgroup *cgrp,
 swap_buffers:
 	/* Swap primary and spare array */
 	thresholds->spare = thresholds->primary;
-
-	rcu_assign_pointer(thresholds->primary, new);
-
-	/* To be sure that nobody uses thresholds */
-	synchronize_rcu();
-
 	/* If all events are unregistered, free the spare array */
 	if (!new) {
 		kfree(thresholds->spare);
 		thresholds->spare = NULL;
 	}
+
+	rcu_assign_pointer(thresholds->primary, new);
+
+	/* To be sure that nobody uses thresholds */
+	synchronize_rcu();
 unlock:
 	mutex_unlock(&memcg->thresholds_lock);
 }
@@ -6297,16 +6296,6 @@ mem_cgroup_css_online(struct cgroup *cont)
 
 	error = memcg_init_kmem(memcg, &mem_cgroup_subsys);
 	mutex_unlock(&memcg_create_mutex);
-	if (error) {
-		/*
-		 * We call put now because our (and parent's) refcnts
-		 * are already in place. mem_cgroup_put() will internally
-		 * call __mem_cgroup_free, so return directly
-		 */
-		mem_cgroup_put(memcg);
-		if (parent->use_hierarchy)
-			mem_cgroup_put(parent);
-	}
 	return error;
 }
 
@@ -6754,12 +6743,6 @@ static int mem_cgroup_can_attach(struct cgroup *cgroup,
 	return ret;
 }
 
-static int mem_cgroup_allow_attach(struct cgroup *cgroup,
-				   struct cgroup_taskset *tset)
-{
-	return subsys_cgroup_allow_attach(cgroup, tset);
-}
-
 static void mem_cgroup_cancel_attach(struct cgroup *cgroup,
 				     struct cgroup_taskset *tset)
 {
@@ -6928,11 +6911,6 @@ static int mem_cgroup_can_attach(struct cgroup *cgroup,
 {
 	return 0;
 }
-static int mem_cgroup_allow_attach(struct cgroup *cgroup,
-				   struct cgroup_taskset *tset)
-{
-	return 0;
-}
 static void mem_cgroup_cancel_attach(struct cgroup *cgroup,
 				     struct cgroup_taskset *tset)
 {
@@ -6968,7 +6946,6 @@ struct cgroup_subsys mem_cgroup_subsys = {
 	.can_attach = mem_cgroup_can_attach,
 	.cancel_attach = mem_cgroup_cancel_attach,
 	.attach = mem_cgroup_move_task,
-	.allow_attach = mem_cgroup_allow_attach,
 	.bind = mem_cgroup_bind,
 	.base_cftypes = mem_cgroup_files,
 	.early_init = 0,

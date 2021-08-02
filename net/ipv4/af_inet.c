@@ -89,7 +89,6 @@
 #include <linux/netfilter_ipv4.h>
 #include <linux/random.h>
 #include <linux/slab.h>
-#include <linux/netfilter/xt_qtaguid.h>
 
 #include <asm/uaccess.h>
 
@@ -300,6 +299,9 @@ static int inet_create(struct net *net, struct socket *sock, int protocol,
 	int try_loading_module = 0;
 	int err;
 
+	if (protocol < 0 || protocol >= IPPROTO_MAX)
+		return -EINVAL;
+
 	if (!current_has_network())
 		return -EACCES;
 
@@ -446,9 +448,6 @@ int inet_release(struct socket *sock)
 	if (sk) {
 		long timeout;
 
-#ifdef CONFIG_NETFILTER_XT_MATCH_QTAGUID
-		qtaguid_untag(sock, true);
-#endif
 		sock_rps_reset_flow(sk);
 
 		/* Applications forget to leave groups before exiting */

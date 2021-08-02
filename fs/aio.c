@@ -35,6 +35,7 @@
 #include <linux/eventfd.h>
 #include <linux/blkdev.h>
 #include <linux/compat.h>
+#include <linux/personality.h>
 
 #include <asm/kmap_types.h>
 #include <asm/uaccess.h>
@@ -152,6 +153,9 @@ static int aio_setup_ring(struct kioctx *ctx)
 	struct mm_struct *mm = current->mm;
 	unsigned long size, populate;
 	int nr_pages;
+
+	if (current->personality & READ_IMPLIES_EXEC)
+		return -EPERM;
 
 	/* Compensate for the ring buffer's head/tail overlap entry */
 	nr_events += 2;	/* 1 is required, 2 for good luck */
@@ -715,8 +719,6 @@ static long aio_read_events_ring(struct kioctx *ctx,
 	if (head == ctx->tail)
 		goto out;
 
-	head %= ctx->nr_events;
-
 	while (ret < nr) {
 		long avail;
 		struct io_event *ev;
@@ -983,7 +985,7 @@ static ssize_t aio_setup_single_vector(int rw, struct kiocb *kiocb)
 		len = MAX_RW_COUNT;
 
 	if (unlikely(!access_ok(!rw, kiocb->ki_buf, len)))
-		return -EFAULT;
+                return -EFAULT;
 
 	kiocb->ki_iovec = &kiocb->ki_inline_vec;
 	kiocb->ki_iovec->iov_base = kiocb->ki_buf;

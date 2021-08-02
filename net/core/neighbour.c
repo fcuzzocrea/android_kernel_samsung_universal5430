@@ -231,7 +231,7 @@ static void neigh_flush_dev(struct neigh_table *tbl, struct net_device *dev)
 				   we must kill timers etc. and move
 				   it to safe state.
 				 */
-				skb_queue_purge(&n->arp_queue);
+				__skb_queue_purge(&n->arp_queue);
 				n->arp_queue_len_bytes = 0;
 				n->output = neigh_blackhole;
 				if (n->nud_state & NUD_VALID)
@@ -283,10 +283,12 @@ static struct neighbour *neigh_alloc(struct neigh_table *tbl, struct net_device 
 	}
 
 	n = kzalloc(tbl->entry_size + dev->neigh_priv_len, GFP_ATOMIC);
-	if (!n)
+	if (!n) {
+		printk(KERN_WARNING "kzalloc() failed.\n");
 		goto out_entries;
+	}
 
-	skb_queue_head_init(&n->arp_queue);
+	__skb_queue_head_init(&n->arp_queue);
 	rwlock_init(&n->lock);
 	seqlock_init(&n->ha_lock);
 	n->updated	  = n->used = now;
@@ -468,6 +470,7 @@ struct neighbour *__neigh_create(struct neigh_table *tbl, const void *pkey,
 	struct neigh_hash_table *nht;
 
 	if (!n) {
+		printk(KERN_WARNING "neigh_alloc() failed by no buffer.\n");
 		rc = ERR_PTR(-ENOBUFS);
 		goto out;
 	}
@@ -700,7 +703,7 @@ void neigh_destroy(struct neighbour *neigh)
 	NEIGH_CACHE_STAT_INC(neigh->tbl, destroys);
 
 	if (!neigh->dead) {
-		pr_warn("Destroying alive neighbour %p\n", neigh);
+		pr_warn("Destroying alive neighbour %pK\n", neigh);
 		dump_stack();
 		return;
 	}
@@ -708,7 +711,9 @@ void neigh_destroy(struct neighbour *neigh)
 	if (neigh_del_timer(neigh))
 		pr_warn("Impossible event\n");
 
-	skb_queue_purge(&neigh->arp_queue);
+	write_lock_bh(&neigh->lock);
+	__skb_queue_purge(&neigh->arp_queue);
+	write_unlock_bh(&neigh->lock);
 	neigh->arp_queue_len_bytes = 0;
 
 	if (dev->netdev_ops->ndo_neigh_destroy)
@@ -858,7 +863,7 @@ static void neigh_invalidate(struct neighbour *neigh)
 		neigh->ops->error_report(neigh, skb);
 		write_lock(&neigh->lock);
 	}
-	skb_queue_purge(&neigh->arp_queue);
+	__skb_queue_purge(&neigh->arp_queue);
 	neigh->arp_queue_len_bytes = 0;
 }
 
@@ -926,7 +931,6 @@ static void neigh_timer_handler(unsigned long arg)
 			neigh->nud_state = NUD_PROBE;
 			neigh->updated = jiffies;
 			atomic_set(&neigh->probes, 0);
-			notify = 1;
 			next = now + neigh->parms->retrans_time;
 		}
 	} else {
@@ -1154,8 +1158,6 @@ int neigh_update(struct neighbour *neigh, const u8 *lladdr, u8 new,
 
 	if (new != old) {
 		neigh_del_timer(neigh);
-		if (new & NUD_PROBE)
-			atomic_set(&neigh->probes, 0);
 		if (new & NUD_IN_TIMER)
 			neigh_add_timer(neigh, (jiffies +
 						((new & NUD_REACHABLE) ?
@@ -1213,7 +1215,7 @@ int neigh_update(struct neighbour *neigh, const u8 *lladdr, u8 new,
 
 			write_lock_bh(&neigh->lock);
 		}
-		skb_queue_purge(&neigh->arp_queue);
+		__skb_queue_purge(&neigh->arp_queue);
 		neigh->arp_queue_len_bytes = 0;
 	}
 out:
@@ -1315,7 +1317,7 @@ int neigh_resolve_output(struct neighbour *neigh, struct sk_buff *skb)
 out:
 	return rc;
 discard:
-	neigh_dbg(1, "%s: dst=%p neigh=%p\n", __func__, dst, neigh);
+	neigh_dbg(1, "%s: dst=%pK neigh=%pK\n", __func__, dst, neigh);
 out_kfree_skb:
 	rc = -EINVAL;
 	kfree_skb(skb);

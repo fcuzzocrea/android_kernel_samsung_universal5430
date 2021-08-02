@@ -537,7 +537,6 @@ static void init_prb_bdqc(struct packet_sock *po,
 	p1->tov_in_jiffies = msecs_to_jiffies(p1->retire_blk_tov);
 	p1->blk_sizeof_priv = req_u->req3.tp_sizeof_priv;
 
-	p1->max_frame_len = p1->kblk_size - BLK_PLUS_PRIV(p1->blk_sizeof_priv);
 	prb_init_ft_ops(p1, req_u);
 	prb_setup_retire_blk_timer(po, tx_ring);
 	prb_open_block(p1, pbd);
@@ -1290,12 +1289,10 @@ static int fanout_add(struct sock *sk, u16 id, u16 type_flags)
 		return -EINVAL;
 	}
 
-	mutex_lock(&fanout_mutex);
-
-	err = -EALREADY;
 	if (po->fanout)
-		goto out;
+		return -EALREADY;
 
+	mutex_lock(&fanout_mutex);
 	match = NULL;
 	list_for_each_entry(f, &fanout_list, list) {
 		if (f->id == id &&
@@ -1332,7 +1329,7 @@ static int fanout_add(struct sock *sk, u16 id, u16 type_flags)
 
 	spin_lock(&po->bind_lock);
 	if (po->running &&
-	    match->type == type &&
+		match->type == type &&
 	    match->prot_hook.type == po->prot_hook.type &&
 	    match->prot_hook.dev == po->prot_hook.dev) {
 		err = -ENOSPC;
@@ -1345,12 +1342,10 @@ static int fanout_add(struct sock *sk, u16 id, u16 type_flags)
 		}
 	}
 	spin_unlock(&po->bind_lock);
-
 	if (err && !atomic_read(&match->sk_ref)) {
 		list_del(&match->list);
 		kfree(match);
 	}
-
 out:
 	mutex_unlock(&fanout_mutex);
 	return err;
@@ -1361,16 +1356,17 @@ static void fanout_release(struct sock *sk)
 	struct packet_sock *po = pkt_sk(sk);
 	struct packet_fanout *f;
 
-	mutex_lock(&fanout_mutex);
 	f = po->fanout;
-	if (f) {
-		po->fanout = NULL;
+	if (!f)
+		return;
 
-		if (atomic_dec_and_test(&f->sk_ref)) {
-			list_del(&f->list);
-			dev_remove_pack(&f->prot_hook);
-			kfree(f);
-		}
+	mutex_lock(&fanout_mutex);
+	po->fanout = NULL;
+
+	if (atomic_dec_and_test(&f->sk_ref)) {
+		list_del(&f->list);
+		dev_remove_pack(&f->prot_hook);
+		kfree(f);
 	}
 	mutex_unlock(&fanout_mutex);
 }
@@ -1783,18 +1779,6 @@ static int tpacket_rcv(struct sk_buff *skb, struct net_device *dev,
 			snaplen = po->rx_ring.frame_size - macoff;
 			if ((int)snaplen < 0)
 				snaplen = 0;
-		}
-	} else if (unlikely(macoff + snaplen >
-			    GET_PBDQC_FROM_RB(&po->rx_ring)->max_frame_len)) {
-		u32 nval;
-
-		nval = GET_PBDQC_FROM_RB(&po->rx_ring)->max_frame_len - macoff;
-		pr_err_once("tpacket_rcv: packet too big, clamped from %u to %u. macoff=%u\n",
-			    snaplen, nval, macoff);
-		snaplen = nval;
-		if (unlikely((int)snaplen < 0)) {
-			snaplen = 0;
-			macoff = GET_PBDQC_FROM_RB(&po->rx_ring)->max_frame_len;
 		}
 	}
 	spin_lock(&sk->sk_receive_queue.lock);
@@ -2492,20 +2476,17 @@ static int packet_release(struct socket *sock)
 static int packet_do_bind(struct sock *sk, struct net_device *dev, __be16 protocol)
 {
 	struct packet_sock *po = pkt_sk(sk);
-	int ret = 0;
-
-	lock_sock(sk);
-
-	spin_lock(&po->bind_lock);
 
 	if (po->fanout) {
 		if (dev)
 			dev_put(dev);
 
-		ret = -EINVAL;
-		goto out_unlock;
+		return -EINVAL;
 	}
 
+	lock_sock(sk);
+
+	spin_lock(&po->bind_lock);
 	unregister_prot_hook(sk, true);
 	po->num = protocol;
 	po->prot_hook.type = protocol;
@@ -2529,7 +2510,7 @@ static int packet_do_bind(struct sock *sk, struct net_device *dev, __be16 protoc
 out_unlock:
 	spin_unlock(&po->bind_lock);
 	release_sock(sk);
-	return ret;
+	return 0;
 }
 
 /*
@@ -2718,7 +2699,6 @@ static int packet_recvmsg(struct kiocb *iocb, struct socket *sock,
 	struct sock *sk = sock->sk;
 	struct sk_buff *skb;
 	int copied, err;
-	struct sockaddr_ll *sll;
 	int vnet_hdr_len = 0;
 
 	err = -EINVAL;
@@ -2801,21 +2781,10 @@ static int packet_recvmsg(struct kiocb *iocb, struct socket *sock,
 			goto out_free;
 	}
 
-	/*
-	 *	If the address length field is there to be filled in, we fill
-	 *	it in now.
-	 */
-
-	sll = &PACKET_SKB_CB(skb)->sa.ll;
-	if (sock->type == SOCK_PACKET)
-		msg->msg_namelen = sizeof(struct sockaddr_pkt);
-	else
-		msg->msg_namelen = sll->sll_halen + offsetof(struct sockaddr_ll, sll_addr);
-
-	/*
-	 *	You lose any data beyond the buffer you gave. If it worries a
-	 *	user program they can ask the device for its MTU anyway.
-	 */
+	/* You lose any data beyond the buffer you gave. If it worries
+	 * a user program they can ask the device for its MTU
+	 * anyway.
+ 	 */
 
 	copied = skb->len;
 	if (copied > len) {
@@ -2829,9 +2798,20 @@ static int packet_recvmsg(struct kiocb *iocb, struct socket *sock,
 
 	sock_recv_ts_and_drops(msg, sk, skb);
 
-	if (msg->msg_name)
+	if (msg->msg_name) {
+		/* If the address length field is there to be filled
+		 * in, we fill it in now.
+		 */
+		if (sock->type == SOCK_PACKET) {
+			msg->msg_namelen = sizeof(struct sockaddr_pkt);
+		} else {
+			struct sockaddr_ll *sll = &PACKET_SKB_CB(skb)->sa.ll;
+			msg->msg_namelen = sll->sll_halen +
+				offsetof(struct sockaddr_ll, sll_addr);
+		}
 		memcpy(msg->msg_name, &PACKET_SKB_CB(skb)->sa,
 		       msg->msg_namelen);
+	}
 
 	if (pkt_sk(sk)->auxdata) {
 		struct tpacket_auxdata aux;
@@ -3162,8 +3142,6 @@ packet_setsockopt(struct socket *sock, int level, int optname, char __user *optv
 			return -EINVAL;
 		if (copy_from_user(&val, optval, sizeof(val)))
 			return -EFAULT;
-		if (val > INT_MAX)
-			return -EINVAL;
 		lock_sock(sk);
 		if (po->rx_ring.pg_vec || po->tx_ring.pg_vec) {
 			ret = -EBUSY;
@@ -3652,10 +3630,6 @@ static int packet_set_ring(struct sock *sk, union tpacket_req_u *req_u,
 			goto out;
 		if (unlikely(req->tp_block_size & (PAGE_SIZE - 1)))
 			goto out;
-		if (po->tp_version >= TPACKET_V3 &&
-		    req->tp_block_size <=
-			  BLK_PLUS_PRIV((u64)req_u->req3.tp_sizeof_priv))
-			goto out;
 		if (unlikely(req->tp_frame_size < po->tp_hdrlen +
 					po->tp_reserve))
 			goto out;
@@ -3664,8 +3638,6 @@ static int packet_set_ring(struct sock *sk, union tpacket_req_u *req_u,
 
 		rb->frames_per_block = req->tp_block_size/req->tp_frame_size;
 		if (unlikely(rb->frames_per_block <= 0))
-			goto out;
-		if (unlikely(req->tp_block_size > UINT_MAX / req->tp_block_nr))
 			goto out;
 		if (unlikely((rb->frames_per_block * req->tp_block_nr) !=
 					req->tp_frame_nr))

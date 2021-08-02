@@ -802,9 +802,10 @@ nfsd_open(struct svc_rqst *rqstp, struct svc_fh *fhp, umode_t type,
 			flags = O_WRONLY|O_LARGEFILE;
 	}
 	*filp = dentry_open(&path, flags, current_cred());
-	if (IS_ERR(*filp))
+	if (IS_ERR(*filp)) {
 		host_err = PTR_ERR(*filp);
-	else {
+		*filp = NULL;
+	} else {
 		host_err = ima_file_check(*filp, may_flags);
 
 		if (may_flags & NFSD_MAY_64BIT_COOKIE)
@@ -1912,7 +1913,6 @@ struct buffered_dirent {
 };
 
 struct readdir_data {
-	struct dir_context ctx;
 	char		*dirent;
 	size_t		used;
 	int		full;
@@ -1944,15 +1944,13 @@ static int nfsd_buffered_filldir(void *__buf, const char *name, int namlen,
 static __be32 nfsd_buffered_readdir(struct file *file, filldir_t func,
 				    struct readdir_cd *cdp, loff_t *offsetp)
 {
+	struct readdir_data buf;
 	struct buffered_dirent *de;
 	int host_err;
 	int size;
 	loff_t offset;
-	struct readdir_data buf = {
-		.ctx.actor = nfsd_buffered_filldir,
-		.dirent = (void *)__get_free_page(GFP_KERNEL)
-	};
 
+	buf.dirent = (void *)__get_free_page(GFP_KERNEL);
 	if (!buf.dirent)
 		return nfserrno(-ENOMEM);
 
@@ -1966,7 +1964,7 @@ static __be32 nfsd_buffered_readdir(struct file *file, filldir_t func,
 		buf.used = 0;
 		buf.full = 0;
 
-		host_err = iterate_dir(file, &buf.ctx);
+		host_err = vfs_readdir(file, nfsd_buffered_filldir, &buf);
 		if (buf.full)
 			host_err = 0;
 

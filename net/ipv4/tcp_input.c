@@ -3266,7 +3266,7 @@ static void tcp_send_challenge_ack(struct sock *sk)
 
 		challenge_timestamp = now;
 		ACCESS_ONCE(challenge_count) = half +
-				reciprocal_divide(prandom_u32(),
+				  reciprocal_divide(prandom_u32(),
 					sysctl_tcp_challenge_ack_limit);
 	}
 	count = ACCESS_ONCE(challenge_count);
@@ -4553,7 +4553,6 @@ restart:
 static void tcp_collapse_ofo_queue(struct sock *sk)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
-	u32 range_truesize, sum_tiny = 0;
 	struct sk_buff *skb = skb_peek(&tp->out_of_order_queue);
 	struct sk_buff *head;
 	u32 start, end;
@@ -4563,7 +4562,6 @@ static void tcp_collapse_ofo_queue(struct sock *sk)
 
 	start = TCP_SKB_CB(skb)->seq;
 	end = TCP_SKB_CB(skb)->end_seq;
-	range_truesize = skb->truesize;
 	head = skb;
 
 	for (;;) {
@@ -4578,24 +4576,14 @@ static void tcp_collapse_ofo_queue(struct sock *sk)
 		if (!skb ||
 		    after(TCP_SKB_CB(skb)->seq, end) ||
 		    before(TCP_SKB_CB(skb)->end_seq, start)) {
-			/* Do not attempt collapsing tiny skbs */
-			if (range_truesize != head->truesize ||
-			    end - start >= SKB_WITH_OVERHEAD(SK_MEM_QUANTUM)) {
-				tcp_collapse(sk, &tp->out_of_order_queue,
-					     head, skb, start, end);
-			} else {
-				sum_tiny += range_truesize;
-				if (sum_tiny > sk->sk_rcvbuf >> 3)
-					return;
-			}
-
+			tcp_collapse(sk, &tp->out_of_order_queue,
+				     head, skb, start, end);
 			head = skb;
 			if (!skb)
 				break;
 			/* Start new segment */
 			start = TCP_SKB_CB(skb)->seq;
 			end = TCP_SKB_CB(skb)->end_seq;
-			range_truesize = skb->truesize;
 		} else {
 			if (before(TCP_SKB_CB(skb)->seq, start))
 				start = TCP_SKB_CB(skb)->seq;
@@ -4650,9 +4638,6 @@ static int tcp_prune_queue(struct sock *sk)
 		tcp_clamp_window(sk);
 	else if (sk_under_memory_pressure(sk))
 		tp->rcv_ssthresh = min(tp->rcv_ssthresh, 4U * tp->advmss);
-
-	if (atomic_read(&sk->sk_rmem_alloc) <= sk->sk_rcvbuf)
-		return 0;
 
 	tcp_collapse_ofo_queue(sk);
 	if (!skb_queue_empty(&sk->sk_receive_queue))
@@ -4781,7 +4766,8 @@ static void __tcp_ack_snd_check(struct sock *sk, int ofo_possible)
 	struct tcp_sock *tp = tcp_sk(sk);
 
 	    /* More than one full frame received... */
-	if (((tp->rcv_nxt - tp->rcv_wup) > inet_csk(sk)->icsk_ack.rcv_mss &&
+	if (((tp->rcv_nxt - tp->rcv_wup) > (inet_csk(sk)->icsk_ack.rcv_mss) *
+					sysctl_tcp_delack_seg &&
 	     /* ... and right edge of window advances far enough.
 	      * (tcp_recvmsg() will send ACK otherwise). Or...
 	      */
@@ -4919,7 +4905,7 @@ static int tcp_copy_to_iovec(struct sock *sk, struct sk_buff *skb, int hlen)
 		err = skb_copy_datagram_iovec(skb, hlen, tp->ucopy.iov, chunk);
 	else
 		err = skb_copy_and_csum_datagram_iovec(skb, hlen,
-						       tp->ucopy.iov);
+						       tp->ucopy.iov, chunk);
 
 	if (!err) {
 		tp->ucopy.len -= chunk;
@@ -5273,7 +5259,7 @@ slow_path:
 	if (len < (th->doff << 2) || tcp_checksum_complete_user(sk, skb))
 		goto csum_error;
 
-	if (!th->ack && !th->rst)
+	if (!th->ack && !th->rst && !th->syn)
 		goto discard;
 
 	/*
@@ -5688,7 +5674,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 			goto discard;
 	}
 
-	if (!th->ack && !th->rst)
+	if (!th->ack && !th->rst && !th->syn)
 		goto discard;
 
 	if (!tcp_validate_incoming(sk, skb, th, 0))

@@ -75,9 +75,15 @@ struct cfg80211_registered_device {
 	struct work_struct scan_done_wk;
 	struct work_struct sched_scan_results_wk;
 
+#ifdef CONFIG_CFG80211_SUPPORT_VENDOR_COMMANDS
+	struct genl_info *cur_cmd_info;
+#endif
+
 	struct mutex sched_scan_mtx;
 
-	struct genl_info *cur_cmd_info;
+#ifdef CONFIG_NL80211_TESTMODE
+	struct genl_info *testmode_info;
+#endif
 
 	struct work_struct conn_work;
 	struct work_struct event_work;
@@ -88,12 +94,6 @@ struct cfg80211_registered_device {
 
 	/* netlink port which started critical protocol (0 means not started) */
 	u32 crit_proto_nlportid;
-
-	spinlock_t destroy_list_lock;
-	struct list_head destroy_list;
-	struct work_struct destroy_work;
-
-	struct work_struct sched_scan_stop_wk;
 
 	/* must be last because of the way we do wiphy_priv(),
 	 * and it should at least be aligned to NETDEV_ALIGN */
@@ -106,6 +106,15 @@ struct cfg80211_registered_device *wiphy_to_dev(struct wiphy *wiphy)
 	BUG_ON(!wiphy);
 	return container_of(wiphy, struct cfg80211_registered_device, wiphy);
 }
+
+#ifdef CONFIG_CFG80211_SUPPORT_VENDOR_COMMANDS
+static inline
+struct cfg80211_registered_device *wiphy_to_rdev(struct wiphy *wiphy)
+{
+	BUG_ON(!wiphy);
+	return container_of(wiphy, struct cfg80211_registered_device, wiphy);
+}
+#endif
 
 static inline void
 cfg80211_rdev_free_wowlan(struct cfg80211_registered_device *rdev)
@@ -265,13 +274,6 @@ struct cfg80211_beacon_registration {
 	struct list_head list;
 	u32 nlportid;
 };
-
-struct cfg80211_iface_destroy {
-	struct list_head list;
-	u32 nlportid;
-};
-
-void cfg80211_destroy_ifaces(struct cfg80211_registered_device *rdev);
 
 /* free object */
 extern void cfg80211_dev_free(struct cfg80211_registered_device *rdev);

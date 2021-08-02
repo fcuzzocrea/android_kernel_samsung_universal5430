@@ -2339,14 +2339,13 @@ static inline bool skb_needs_check(struct sk_buff *skb, bool tx_path)
 struct sk_buff *__skb_gso_segment(struct sk_buff *skb,
 				  netdev_features_t features, bool tx_path)
 {
-	struct sk_buff *segs;
-
 	if (unlikely(skb_needs_check(skb, tx_path))) {
 		int err;
 
-		/* We're going to init ->check field in TCP or UDP header */
-		err = skb_cow_head(skb, 0);
-		if (err < 0)
+		skb_warn_bad_offload(skb);
+
+		if (skb_header_cloned(skb) &&
+		    (err = pskb_expand_head(skb, 0, 0, GFP_ATOMIC)))
 			return ERR_PTR(err);
 	}
 
@@ -2354,12 +2353,7 @@ struct sk_buff *__skb_gso_segment(struct sk_buff *skb,
 	skb_reset_mac_header(skb);
 	skb_reset_mac_len(skb);
 
-	segs = skb_mac_gso_segment(skb, features);
-
-	if (unlikely(skb_needs_check(skb, tx_path)))
-		skb_warn_bad_offload(skb);
-
-	return segs;
+	return skb_mac_gso_segment(skb, features);
 }
 EXPORT_SYMBOL(__skb_gso_segment);
 
@@ -3519,8 +3513,15 @@ ncls:
 		}
 	}
 
-	if (vlan_tx_nonzero_tag_present(skb))
-		skb->pkt_type = PACKET_OTHERHOST;
+	if (unlikely(vlan_tx_tag_present(skb))) {
+		if (vlan_tx_tag_get_id(skb))
+			skb->pkt_type = PACKET_OTHERHOST;
+		/* Note: we might in the future use prio bits
+		 * and set skb->priority like in vlan_do_receive()
+		 * For the time being, just ignore Priority Code Point
+		 */
+		skb->vlan_tci = 0;
+	}
 
 	/* deliver only exact match when indicated */
 	null_or_dev = deliver_exact ? skb->dev : NULL;
@@ -4003,6 +4004,9 @@ static void net_rps_action_and_irq_enable(struct softnet_data *sd)
 			if (cpu_online(remsd->cpu))
 				__smp_call_function_single(remsd->cpu,
 							   &remsd->csd, 0);
+			else
+				clear_bit(NAPI_STATE_SCHED, &remsd->backlog.state);
+
 			remsd = next;
 		}
 	} else

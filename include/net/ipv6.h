@@ -279,14 +279,10 @@ static inline void fl6_sock_release(struct ip6_flowlabel *fl)
 	if (fl)
 		atomic_dec(&fl->users);
 }
-
-extern void icmpv6_notify(struct sk_buff *skb, u8 type, u8 code, __be32 info);
-
 int icmpv6_push_pending_frames(struct sock *sk, struct flowi6 *fl6,
 			       struct icmp6hdr *thdr, int len);
 
-struct dst_entry *icmpv6_route_lookup(struct net *net, struct sk_buff *skb,
-				      struct sock *sk, struct flowi6 *fl6);
+extern void icmpv6_notify(struct sk_buff *skb, u8 type, u8 code, __be32 info);
 
 extern int 			ip6_ra_control(struct sock *sk, int sel);
 
@@ -323,8 +319,8 @@ static inline int ip6_frag_mem(struct net *net)
 }
 #endif
 
-#define IPV6_FRAG_HIGH_THRESH	(256 * 1024)	/* 262144 */
-#define IPV6_FRAG_LOW_THRESH	(192 * 1024)	/* 196608 */
+#define IPV6_FRAG_HIGH_THRESH	(4 * 1024*1024)	/* 4194304 */
+#define IPV6_FRAG_LOW_THRESH	(3 * 1024*1024)	/* 3145728 */
 #define IPV6_FRAG_TIMEOUT	(60 * HZ)	/* 60 seconds */
 
 extern int __ipv6_addr_type(const struct in6_addr *addr);
@@ -821,10 +817,8 @@ extern int			compat_ipv6_getsockopt(struct sock *sk,
 extern int			ip6_datagram_connect(struct sock *sk, 
 						     struct sockaddr *addr, int addr_len);
 
-extern int 			ipv6_recv_error(struct sock *sk, struct msghdr *msg, int len,
-						int *addr_len);
-extern int 			ipv6_recv_rxpmtu(struct sock *sk, struct msghdr *msg, int len,
-						 int *addr_len);
+extern int 			ipv6_recv_error(struct sock *sk, struct msghdr *msg, int len);
+extern int 			ipv6_recv_rxpmtu(struct sock *sk, struct msghdr *msg, int len);
 extern void			ipv6_icmp_error(struct sock *sk, struct sk_buff *skb, int err, __be16 port,
 						u32 info, u8 *payload);
 extern void			ipv6_local_error(struct sock *sk, int err, struct flowi6 *fl6, u32 info);

@@ -210,7 +210,7 @@ static u32 seccomp_run_filters(int syscall)
 	if (unlikely(WARN_ON(f == NULL)))
 		return SECCOMP_RET_KILL;
 
-	/* Make sure cross-thread synced filter points somewhere sane. */
+/* Make sure cross-thread synced filter points somewhere sane. */
 	smp_read_barrier_depends();
 
 	/*
@@ -219,12 +219,13 @@ static u32 seccomp_run_filters(int syscall)
 	 */
 	for (; f; f = f->prev) {
 		u32 cur_ret = sk_run_filter(NULL, f->insns);
-		
+
 		if ((cur_ret & SECCOMP_RET_ACTION) < (ret & SECCOMP_RET_ACTION))
 			ret = cur_ret;
 	}
 	return ret;
 }
+
 #endif /* CONFIG_SECCOMP_FILTER */
 
 static inline bool seccomp_may_assign_mode(unsigned long seccomp_mode)
@@ -339,24 +340,24 @@ static inline void seccomp_sync_threads(void)
 		put_seccomp_filter(thread);
 		smp_store_release(&thread->seccomp.filter,
 				  caller->seccomp.filter);
-
-		/*
-		 * Don't let an unprivileged task work around
-		 * the no_new_privs restriction by creating
-		 * a thread that sets it up, enters seccomp,
-		 * then dies.
-		 */
-		if (task_no_new_privs(caller))
-			task_set_no_new_privs(thread);
-
 		/*
 		 * Opt the other thread into seccomp if needed.
 		 * As threads are considered to be trust-realm
 		 * equivalent (see ptrace_may_access), it is safe to
 		 * allow one thread to transition the other.
 		 */
-		if (thread->seccomp.mode == SECCOMP_MODE_DISABLED)
+		if (thread->seccomp.mode == SECCOMP_MODE_DISABLED) {
+			/*
+			 * Don't let an unprivileged task work around
+			 * the no_new_privs restriction by creating
+			 * a thread that sets it up, enters seccomp,
+			 * then dies.
+			 */
+			if (task_no_new_privs(caller))
+				task_set_no_new_privs(thread);
+
 			seccomp_assign_mode(thread, SECCOMP_MODE_FILTER);
+		}
 	}
 }
 
@@ -366,7 +367,7 @@ static inline void seccomp_sync_threads(void)
  *
  * Returns filter on success or an ERR_PTR on failure.
  */
-static struct seccomp_filter *seccomp_prepare_filter(struct sock_fprog *fprog)
+static struct seccomp_filter * seccomp_prepare_filter(struct sock_fprog *fprog)
 {
 	struct seccomp_filter *filter;
 	unsigned long fp_size = fprog->len * sizeof(struct sock_filter);
@@ -388,7 +389,7 @@ static struct seccomp_filter *seccomp_prepare_filter(struct sock_fprog *fprog)
 	 * This avoids scenarios where unprivileged tasks can affect the
 	 * behavior of privileged children.
 	 */
-	if (!task_no_new_privs(current) &&
+	if (!task_no_new_privs(current)	 &&
 	    security_capable_noaudit(current_cred(), current_user_ns(),
 				     CAP_SYS_ADMIN) != 0)
 		return ERR_PTR(-EACCES);
@@ -397,7 +398,7 @@ static struct seccomp_filter *seccomp_prepare_filter(struct sock_fprog *fprog)
 	filter = kzalloc(sizeof(struct seccomp_filter) + fp_size,
 			 GFP_KERNEL|__GFP_NOWARN);
 	if (!filter)
-		return ERR_PTR(-ENOMEM);;
+		return ERR_PTR(-ENOMEM);
 	atomic_set(&filter->usage, 1);
 	filter->len = fprog->len;
 
@@ -417,7 +418,6 @@ static struct seccomp_filter *seccomp_prepare_filter(struct sock_fprog *fprog)
 		goto fail;
 
 	return filter;
-
 fail:
 	kfree(filter);
 	return ERR_PTR(ret);
@@ -576,7 +576,7 @@ int __secure_computing(int this_syscall)
 	 * been seen after TIF_SECCOMP was seen.
 	 */
 	rmb();
-
+	
 	switch (current->seccomp.mode) {
 	case SECCOMP_MODE_STRICT:
 		syscall = mode1_syscalls;
@@ -600,9 +600,7 @@ int __secure_computing(int this_syscall)
 		ret &= SECCOMP_RET_ACTION;
 		switch (ret) {
 		case SECCOMP_RET_ERRNO:
-			/* Set low-order bits as an errno, capped at MAX_ERRNO. */
-			if (data > MAX_ERRNO)
-				data = MAX_ERRNO;
+			/* Set the low-order 16-bits as a errno. */
 			syscall_set_return_value(current, regs,
 						 -data, 0);
 			goto skip;
@@ -714,7 +712,7 @@ static long seccomp_set_mode_filter(unsigned int flags,
 	struct seccomp_filter *prepared = NULL;
 	long ret = -EINVAL;
 
-	/* Validate flags. */
+		/* Validate flags. */
 	if (flags & ~SECCOMP_FILTER_FLAG_MASK)
 		return -EINVAL;
 
@@ -739,7 +737,8 @@ static long seccomp_set_mode_filter(unsigned int flags,
 	ret = seccomp_attach_filter(flags, prepared);
 	if (ret)
 		goto out;
-	/* Do not free the successfully attached filter. */
+
+		/* Do not free the successfully attached filter. */
 	prepared = NULL;
 
 	seccomp_assign_mode(current, seccomp_mode);
@@ -814,3 +813,4 @@ long prctl_set_seccomp(unsigned long seccomp_mode, char __user *filter)
 	/* prctl interface doesn't have flags, so they are always zero. */
 	return do_seccomp(op, 0, uargs);
 }
+

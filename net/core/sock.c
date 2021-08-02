@@ -1,3 +1,4 @@
+/* Copyright (c) 2015 Samsung Electronics Co., Ltd. */
 /*
  * INET		An implementation of the TCP/IP protocol suite for the LINUX
  *		operating system.  INET is implemented using the  BSD Socket
@@ -87,6 +88,14 @@
  *		modify it under the terms of the GNU General Public License
  *		as published by the Free Software Foundation; either version
  *		2 of the License, or (at your option) any later version.
+ */
+/*
+ *  Changes:
+ *  KwnagHyun Kim <kh0304.kim@samsung.com> 2015/07/08
+ *  Baesung Park  <baesung.park@samsung.com> 2015/07/08
+ *  Vignesh Saravanaperumal <vignesh1.s@samsung.com> 2015/07/08
+ *    Add codes to share UID/PID information
+ *
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -1251,6 +1260,11 @@ static struct sock *sk_prot_alloc(struct proto *prot, gfp_t priority,
 		if (!try_module_get(prot->owner))
 			goto out_free_sec;
 		sk_tx_queue_clear(sk);
+
+// ------------- START of KNOX_VPN ------------------//
+        sk->knox_uid = current->cred->uid;
+        sk->knox_pid = current->tgid;
+// ------------- END of KNOX_VPN -------------------//
 	}
 
 	return sk;
@@ -1417,8 +1431,6 @@ struct sock *sk_clone_lock(const struct sock *sk, const gfp_t priority)
 		struct sk_filter *filter;
 
 		sock_copy(newsk, sk);
-
-		newsk->sk_prot_creator = sk->sk_prot;
 
 		/* SANITY */
 		get_net(sock_net(newsk));
@@ -2245,11 +2257,8 @@ void sock_init_data(struct socket *sock, struct sock *sk)
 		sk->sk_type	=	sock->type;
 		sk->sk_wq	=	sock->wq;
 		sock->sk	=	sk;
-		sk->sk_uid	=	SOCK_INODE(sock)->i_uid;
-	} else {
+	} else
 		sk->sk_wq	=	NULL;
-		sk->sk_uid	=	make_kuid(sock_net(sk)->user_ns, 0);
-	}
 
 	spin_lock_init(&sk->sk_dst_lock);
 	rwlock_init(&sk->sk_callback_lock);

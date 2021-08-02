@@ -12,12 +12,16 @@ fb-y                              := fbmem.o fbmon.o fbcmap.o fbsysfs.o \
                                      modedb.o fbcvt.o
 fb-objs                           := $(fb-y)
 
-obj-$(CONFIG_ADF)		  += adf/
 obj-$(CONFIG_VT)		  += console/
 obj-$(CONFIG_LOGO)		  += logo/
 obj-y				  += backlight/
 
-obj-$(CONFIG_EXYNOS_VIDEO)     += exynos/
+obj-$(CONFIG_EXYNOS_VIDEO)        += exynos/
+
+obj-$(CONFIG_DECON_FB)            += decon_display/
+
+obj-$(CONFIG_SAMSUNG_MHL_8240) += mhl/sii8240/
+obj-$(CONFIG_SEC_MHL_SII8620) += mhl/sii8620/
 
 obj-$(CONFIG_FB_CFB_FILLRECT)  += cfbfillrect.o
 obj-$(CONFIG_FB_CFB_COPYAREA)  += cfbcopyarea.o

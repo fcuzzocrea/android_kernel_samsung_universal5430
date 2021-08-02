@@ -30,7 +30,9 @@ static const int cfq_back_penalty = 2;
 static const int cfq_slice_sync = HZ / 10;
 static int cfq_slice_async = HZ / 25;
 static const int cfq_slice_async_rq = 2;
-static int cfq_slice_idle = HZ / 125;
+/* Explicitly set cfq_slice_idle to 0 */
+static int cfq_slice_idle = 0;
+/*static int cfq_slice_idle = HZ / 125;*/
 static int cfq_group_idle = HZ / 125;
 static const int cfq_target_latency = HZ * 3/10; /* 300 ms */
 static const int cfq_hist_divisor = 4;
@@ -4083,8 +4085,10 @@ static void cfq_completed_request(struct request_queue *q, struct request *rq)
 		}
 	}
 
+	/* Disable uplug_work at blk_end_request
 	if (!cfqd->rq_in_driver)
 		cfq_schedule_dispatch(cfqd);
+	*/
 }
 
 static inline int __cfq_may_queue(struct cfq_queue *cfqq)
@@ -4347,18 +4351,28 @@ static void cfq_exit_queue(struct elevator_queue *e)
 	kfree(cfqd);
 }
 
-static int cfq_init_queue(struct request_queue *q)
+static int cfq_init_queue(struct request_queue *q, struct elevator_type *e)
 {
 	struct cfq_data *cfqd;
 	struct blkcg_gq *blkg __maybe_unused;
 	int i, ret;
+	struct elevator_queue *eq;
 
-	cfqd = kmalloc_node(sizeof(*cfqd), GFP_KERNEL | __GFP_ZERO, q->node);
-	if (!cfqd)
+	eq = elevator_alloc(q, e);
+	if (!eq)
 		return -ENOMEM;
 
+	cfqd = kmalloc_node(sizeof(*cfqd), GFP_KERNEL | __GFP_ZERO, q->node);
+	if (!cfqd) {
+		kobject_put(&eq->kobj);
+		return -ENOMEM;
+	}
+	eq->elevator_data = cfqd;
+
 	cfqd->queue = q;
-	q->elevator->elevator_data = cfqd;
+	spin_lock_irq(q->queue_lock);
+	q->elevator = eq;
+	spin_unlock_irq(q->queue_lock);
 
 	/* Init root service tree */
 	cfqd->grp_service_tree = CFQ_RB_ROOT;
@@ -4433,6 +4447,7 @@ static int cfq_init_queue(struct request_queue *q)
 
 out_free:
 	kfree(cfqd);
+	kobject_put(&eq->kobj);
 	return ret;
 }
 
@@ -4579,9 +4594,11 @@ static int __init cfq_init(void)
 	 */
 	if (!cfq_slice_async)
 		cfq_slice_async = 1;
+        /* Do not touch cfq_slice_idle if it is zero */
+        /*
 	if (!cfq_slice_idle)
 		cfq_slice_idle = 1;
-
+        */
 #ifdef CONFIG_CFQ_GROUP_IOSCHED
 	if (!cfq_group_idle)
 		cfq_group_idle = 1;

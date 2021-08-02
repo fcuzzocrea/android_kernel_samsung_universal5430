@@ -46,7 +46,6 @@ parameter is applicable:
 	BLACKFIN Blackfin architecture is enabled.
 	CLK	Common clock infrastructure is enabled.
 	CMA	Contiguous Memory Area support is enabled.
-	DM	Device mapper support is enabled.
 	DRM	Direct Rendering Management support is enabled.
 	DYNAMIC_DEBUG Build in debug messages and enable them at runtime
 	EDD	BIOS Enhanced Disk Drive Services (EDD) is enabled
@@ -742,11 +741,6 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 			Disable PIN 1 of APIC timer
 			Can be useful to work around chipset bugs.
 
-	dm=		[DM] Allows early creation of a device-mapper device.
-			See Documentation/device-mapper/boot.txt.
-
-	dmasound=	[HW,OSS] Sound subsystem buffers
-
 	dma_debug=off	If the kernel is compiled with DMA_API_DEBUG support,
 			this option disables the debugging code at boot.
 
@@ -1245,6 +1239,15 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 	ip2=		[HW] Set IO/IRQ pairs for up to 4 IntelliPort boards
 			See comment before ip2_setup() in
 			drivers/char/ip2/ip2base.c.
+
+	irqaffinity=	[SMP] Set the default irq affinity mask
+			Format:
+			<cpu number>,...,<cpu number>
+			or
+			<cpu number>-<cpu number>
+			(must be a positive range in ascending order)
+			or a mixture
+			<cpu number>,...,<cpu number>-<cpu number>
 
 	irqfixup	[HW]
 			When an interrupt is not handled search all handlers

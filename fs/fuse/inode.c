@@ -135,7 +135,6 @@ static void fuse_evict_inode(struct inode *inode)
 
 static int fuse_remount_fs(struct super_block *sb, int *flags, char *data)
 {
-	sync_filesystem(sb);
 	if (*flags & MS_MANDLOCK)
 		return -EINVAL;
 
@@ -872,6 +871,18 @@ static void process_init_reply(struct fuse_conn *fc, struct fuse_req *req)
 				fc->do_readdirplus = 1;
 				if (arg->flags & FUSE_READDIRPLUS_AUTO)
 					fc->readdirplus_auto = 1;
+			}
+			if (arg->flags & FUSE_SHORTCIRCUIT) {
+				fc->shortcircuit_io = 1;
+				pr_info("FUSE: SHORTCIRCUIT enabled [%s : %d]!\n",
+						current->comm, current->pid);
+
+			}
+			if (arg->flags & FUSE_RESERVE_SPACE) {
+				fc->reserved_space_mb = arg->reserved_space_mb;
+				pr_info("FUSE: RESERVE_SPACE enabled [%s : %d]! %u\n",
+						current->comm, current->pid,
+						arg->reserved_space_mb);
 			}
 			if (arg->flags & FUSE_ASYNC_DIO)
 				fc->async_dio = 1;

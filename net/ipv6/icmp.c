@@ -90,13 +90,13 @@ static void icmpv6_err(struct sk_buff *skb, struct inet6_skb_parm *opt,
 	struct net *net = dev_net(skb->dev);
 
 	if (type == ICMPV6_PKT_TOOBIG)
-		ip6_update_pmtu(skb, net, info, 0, 0, sock_net_uid(net, NULL));
+		ip6_update_pmtu(skb, net, info, 0, 0, INVALID_UID);
 	else if (type == NDISC_REDIRECT)
-		ip6_redirect(skb, net, 0, 0, sock_net_uid(net, NULL));
+		ip6_redirect(skb, net, 0, 0);
 
 	if (!(type & ICMPV6_INFOMSG_MASK))
 		if (icmp6->icmp6_type == ICMPV6_ECHO_REQUEST)
-			ping_err(skb, offset, ntohl(info));
+			ping_err(skb, offset, info);
 }
 
 static int icmpv6_rcv(struct sk_buff *skb);
@@ -316,7 +316,7 @@ static inline void mip6_addr_swap(struct sk_buff *skb) {}
 #endif
 
 struct dst_entry *icmpv6_route_lookup(struct net *net, struct sk_buff *skb,
-				      struct sock *sk, struct flowi6 *fl6)
+					     struct sock *sk, struct flowi6 *fl6)
 {
 	struct dst_entry *dst, *dst2;
 	struct flowi6 fl2;
@@ -467,7 +467,6 @@ static void icmp6_send(struct sk_buff *skb, u8 type, u8 code, __u32 info)
 	fl6.flowi6_oif = iif;
 	fl6.fl6_icmp_type = type;
 	fl6.fl6_icmp_code = code;
-	fl6.flowi6_uid = sock_net_uid(net, NULL);
 	security_skb_classify_flow(skb, flowi6_to_flowi(&fl6));
 
 	sk = icmpv6_xmit_lock(net);
@@ -573,7 +572,6 @@ static void icmpv6_echo_reply(struct sk_buff *skb)
 	fl6.flowi6_oif = skb->dev->ifindex;
 	fl6.fl6_icmp_type = ICMPV6_ECHO_REPLY;
 	fl6.flowi6_mark = mark;
-	fl6.flowi6_uid = sock_net_uid(net, NULL);
 	security_skb_classify_flow(skb, flowi6_to_flowi(&fl6));
 
 	sk = icmpv6_xmit_lock(net);

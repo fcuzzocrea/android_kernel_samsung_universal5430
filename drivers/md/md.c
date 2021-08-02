@@ -5620,9 +5620,9 @@ static int get_bitmap_file(struct mddev * mddev, void __user * arg)
 	int err = -ENOMEM;
 
 	if (md_allow_write(mddev))
-		file = kmalloc(sizeof(*file), GFP_NOIO);
+		file = kzalloc(sizeof(*file), GFP_NOIO);
 	else
-		file = kmalloc(sizeof(*file), GFP_KERNEL);
+		file = kzalloc(sizeof(*file), GFP_KERNEL);
 
 	if (!file)
 		goto out;
@@ -7697,20 +7697,6 @@ static int remove_and_add_spares(struct mddev *mddev,
 			continue;
 
 		rdev->recovery_offset = 0;
-		if (rdev->saved_raid_disk >= 0 && mddev->in_sync) {
-			spin_lock_irq(&mddev->write_lock);
-			if (mddev->in_sync)
-				/* OK, this device, which is in_sync,
-				 * will definitely be noticed before
-				 * the next write, so recovery isn't
-				 * needed.
-				 */
-				rdev->recovery_offset = mddev->recovery_cp;
-			spin_unlock_irq(&mddev->write_lock);
-		}
-		if (mddev->ro && rdev->recovery_offset != MaxSector)
-			/* not safe to add this disk now */
-			continue;
 		if (mddev->pers->
 		    hot_add_disk(mddev, rdev) == 0) {
 			if (sysfs_link_rdev(mddev, rdev))

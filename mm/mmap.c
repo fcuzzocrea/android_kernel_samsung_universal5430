@@ -52,6 +52,8 @@
 #define arch_rebalance_pgtables(addr, len)		(addr)
 #endif
 
+extern int boot_mode_security;
+
 #ifdef CONFIG_HAVE_ARCH_MMAP_RND_BITS
 const int mmap_rnd_bits_min = CONFIG_ARCH_MMAP_RND_BITS_MIN;
 const int mmap_rnd_bits_max = CONFIG_ARCH_MMAP_RND_BITS_MAX;
@@ -891,7 +893,7 @@ again:			remove_next = 1 + (end > next->vm_end);
 		if (next->anon_vma)
 			anon_vma_merge(vma, next);
 		mm->map_count--;
-		vma_set_policy(vma, vma_policy(next));
+		mpol_put(vma_policy(next));
 		kmem_cache_free(vm_area_cachep, next);
 		/*
 		 * In mprotect's case 6 (see comments on vma_merge),
@@ -1238,6 +1240,9 @@ unsigned long do_mmap_pgoff(struct file *file, unsigned long addr,
 	vm_flags_t vm_flags;
 
 	*populate = 0;
+
+	while (file && (file->f_mode & FMODE_NONMAPPABLE))
+			file = file->f_op->get_lower_file(file);
 
 	/*
 	 * Does the application expect PROT_READ to imply PROT_EXEC?
@@ -1629,6 +1634,45 @@ munmap_back:
 	vma_link(mm, vma, prev, rb_link, rb_parent);
 	file = vma->vm_file;
 
+#ifdef CONFIG_TIMA_RKP
+#ifdef CONFIG_TIMA_DALVIKHEAP_OPT
+        if(boot_mode_security && file && (strcmp(current->comm, "zygote") == 0)){
+                char *tmp;
+                char *pathname;
+                struct path path;
+
+                path = file->f_path;
+                path_get(&file->f_path);
+
+                tmp = (char *)__get_free_page(GFP_TEMPORARY);
+
+                if (!tmp) {
+                        path_put(&path);
+                        return -ENOMEM;
+                }
+
+                pathname = d_path(&path, tmp, PAGE_SIZE);
+                path_put(&path);
+
+                if (IS_ERR(pathname)) {
+                        free_page((unsigned long)tmp);
+                        return PTR_ERR(pathname);
+                }
+
+                if (strstr(pathname, "dalvik-heap") != NULL
+                                || strstr(pathname, "dalvik-bitmap") != NULL
+                                || strstr(pathname, "dalvik-LinearAlloc") != NULL
+                                || strstr(pathname, "dalvik-mark-stack") != NULL
+                                || strstr(pathname, "dalvik-card-table") != NULL) {
+                        //printk("PROC %s\tFILE %s\tSTART %lx\tLEN %lx\n", current->comm, pathname, addr, len);
+                        tima_send_cmd2(addr, len, 0x30);
+                }
+
+                /* do something here with pathname */
+                free_page((unsigned long)tmp);
+        }
+#endif /* CONFIG_TIMA_DALVIK_OPT */
+#endif
 	/* Once vma denies write, undo our temporary denial count */
 	if (correct_wcount)
 		atomic_inc(&inode->i_writecount);
@@ -1720,7 +1764,7 @@ check_current:
 		if (gap_start > high_limit)
 			return -ENOMEM;
 		if (gap_end >= low_limit &&
-		    gap_end > gap_start && gap_end - gap_start >= length)
+			gap_end > gap_start && gap_end - gap_start >= length)
 			goto found;
 
 		/* Visit right subtree if it looks promising */
@@ -1824,7 +1868,7 @@ check_current:
 		if (gap_end < low_limit)
 			return -ENOMEM;
 		if (gap_start <= high_limit &&
-		    gap_end > gap_start && gap_end - gap_start >= length)
+			gap_end > gap_start && gap_end - gap_start >= length)
 			goto found;
 
 		/* Visit left subtree if it looks promising */
@@ -1888,7 +1932,7 @@ arch_get_unmapped_area(struct file *filp, unsigned long addr,
 	struct vm_area_struct *vma, *prev;
 	struct vm_unmapped_area_info info;
 
-	if (len > TASK_SIZE - mmap_min_addr)
+	if (len > TASK_SIZE)
 		return -ENOMEM;
 
 	if (flags & MAP_FIXED)
@@ -1897,7 +1941,7 @@ arch_get_unmapped_area(struct file *filp, unsigned long addr,
 	if (addr) {
 		addr = PAGE_ALIGN(addr);
 		vma = find_vma_prev(mm, addr, &prev);
-		if (TASK_SIZE - len >= addr && addr >= mmap_min_addr &&
+		if (TASK_SIZE - len >= addr &&
 		    (!vma || addr + len <= vm_start_gap(vma)) &&
 		    (!prev || addr >= vm_end_gap(prev)))
 			return addr;
@@ -1937,7 +1981,7 @@ arch_get_unmapped_area_topdown(struct file *filp, const unsigned long addr0,
 	struct vm_unmapped_area_info info;
 
 	/* requested length too big for entire address space */
-	if (len > TASK_SIZE - mmap_min_addr)
+	if (len > TASK_SIZE)
 		return -ENOMEM;
 
 	if (flags & MAP_FIXED)
@@ -1947,7 +1991,7 @@ arch_get_unmapped_area_topdown(struct file *filp, const unsigned long addr0,
 	if (addr) {
 		addr = PAGE_ALIGN(addr);
 		vma = find_vma_prev(mm, addr, &prev);
-		if (TASK_SIZE - len >= addr && addr >= mmap_min_addr &&
+		if (TASK_SIZE - len >= addr &&
 				(!vma || addr + len <= vm_start_gap(vma)) &&
 				(!prev || addr >= vm_end_gap(prev)))
 			return addr;
@@ -1955,7 +1999,7 @@ arch_get_unmapped_area_topdown(struct file *filp, const unsigned long addr0,
 
 	info.flags = VM_UNMAPPED_AREA_TOPDOWN;
 	info.length = len;
-	info.low_limit = max(PAGE_SIZE, mmap_min_addr);
+	info.low_limit = PAGE_SIZE;
 	info.high_limit = mm->mmap_base;
 	info.align_mask = 0;
 	addr = vm_unmapped_area(&info);
@@ -2090,7 +2134,7 @@ find_vma_prev(struct mm_struct *mm, unsigned long addr,
  * grow-up and grow-down cases.
  */
 static int acct_stack_growth(struct vm_area_struct *vma,
-			     unsigned long size, unsigned long grow)
+			    unsigned long size, unsigned long grow)
 {
 	struct mm_struct *mm = vma->vm_mm;
 	struct rlimit *rlim = current->signal->rlim;
@@ -2169,7 +2213,7 @@ int expand_upwards(struct vm_area_struct *vma, unsigned long address)
 	/* We must make sure the anon_vma is allocated. */
 	if (unlikely(anon_vma_prepare(vma)))
 		return -ENOMEM;
-
+	
 	/*
 	 * vma->vm_start/vm_end cannot change under us because the caller
 	 * is required to hold the mmap_sem in read mode.  We need the
@@ -2227,7 +2271,7 @@ int expand_downwards(struct vm_area_struct *vma,
 				   unsigned long address)
 {
 	struct vm_area_struct *prev;
-	unsigned long gap_addr;
+	unsigned long gap_addr;	
 	int error;
 
 	address &= PAGE_MASK;
@@ -2310,7 +2354,7 @@ static int __init cmdline_parse_stack_guard_gap(char *p)
 		stack_guard_gap = val << PAGE_SHIFT;
 
 	return 0;
-}
+	}
 __setup("stack_guard_gap=", cmdline_parse_stack_guard_gap);
 
 #ifdef CONFIG_STACK_GROWSUP
@@ -2400,7 +2444,7 @@ static void unmap_region(struct mm_struct *mm,
 	struct mmu_gather tlb;
 
 	lru_add_drain();
-	tlb_gather_mmu(&tlb, mm, 0);
+	tlb_gather_mmu(&tlb, mm, start, end);
 	update_hiwater_rss(mm);
 	unmap_vmas(&tlb, vma, start, end);
 	free_pgtables(&tlb, vma, prev ? prev->vm_end : FIRST_USER_ADDRESS,
@@ -2779,7 +2823,7 @@ void exit_mmap(struct mm_struct *mm)
 
 	lru_add_drain();
 	flush_cache_mm(mm);
-	tlb_gather_mmu(&tlb, mm, 1);
+	tlb_gather_mmu(&tlb, mm, 0, -1);
 	/* update_hiwater_rss(mm) here? but nobody should be looking */
 	/* Use -1 here to ensure all VMAs in the mm are unmapped */
 	unmap_vmas(&tlb, vma, 0, -1);

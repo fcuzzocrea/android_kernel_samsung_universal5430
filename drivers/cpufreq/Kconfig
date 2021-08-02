@@ -187,6 +187,13 @@ config CPU_FREQ_GOV_INTERACTIVE
 
 	  If in doubt, say N.
 
+config MODE_AUTO_CHANGE
+	bool "automatic governor parameter change"
+	depends on CPU_FREQ_GOV_INTERACTIVE
+	default n
+	help
+		automatic governor parameter change by MODE
+
 config CPU_FREQ_GOV_CONSERVATIVE
 	tristate "'conservative' cpufreq governor"
 	depends on CPU_FREQ
@@ -221,6 +228,13 @@ config GENERIC_CPUFREQ_CPU0
 	  systems which share clock and voltage across all CPUs.
 
 	  If in doubt, say N.
+
+config AP_CLOCK_LIMIT_ON_JIG_BOOT
+	bool "AP clock limitation when JIG boot while specified time"
+	default n
+	help
+	  This option is for newly added Exynos54xx project after NOTE4 to limit
+	  AP clock when JIG boot while specified time(500sec).
 
 menu "x86 CPU frequency scaling drivers"
 depends on X86

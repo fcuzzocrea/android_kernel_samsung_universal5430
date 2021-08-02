@@ -158,6 +158,11 @@ struct input_keymap_entry {
 
 #define EVIOCSCLOCKID		_IOW('E', 0xa0, int)			/* Set clockid to be used for timestamps */
 
+#ifdef CONFIG_INPUT_EXPANDED_ABS
+#define EVIOCGABS_LIMIT		(0x40)
+#define EVIOCGABS_CHG_LIMIT(nr)	(nr + EVIOCGABS_LIMIT)
+#endif
+
 /*
  * Device properties and quirks
  */
@@ -186,6 +191,9 @@ struct input_keymap_entry {
 #define EV_FF			0x15
 #define EV_PWR			0x16
 #define EV_FF_STATUS		0x17
+#ifdef CONFIG_VT_TKEY_SKIP_MATCH
+#define EV_TOUCHKEY		0x18
+#endif
 #define EV_MAX			0x1f
 #define EV_CNT			(EV_MAX+1)
 
@@ -409,6 +417,8 @@ struct input_keymap_entry {
 #define KEY_F22			192
 #define KEY_F23			193
 #define KEY_F24			194
+#define KEY_LPSD_WAKEUP		198
+#define KEY_VOICE_WAKEUP	199
 
 #define KEY_PLAYCD		200
 #define KEY_PAUSECD		201
@@ -461,17 +471,22 @@ struct input_keymap_entry {
 #define KEY_VIDEO_NEXT		241	/* drive next video source */
 #define KEY_VIDEO_PREV		242	/* drive previous video source */
 #define KEY_BRIGHTNESS_CYCLE	243	/* brightness up, after max is min */
-#define KEY_BRIGHTNESS_AUTO	244	/* Set Auto Brightness: manual
-					  brightness control is off,
-					  rely on ambient */
-#define KEY_BRIGHTNESS_ZERO	KEY_BRIGHTNESS_AUTO
+#define KEY_BRIGHTNESS_ZERO	244	/* brightness off, use ambient */
 #define KEY_DISPLAY_OFF		245	/* display device to off state */
 
-#define KEY_WWAN		246	/* Wireless WAN (LTE, UMTS, GSM, etc.) */
-#define KEY_WIMAX		KEY_WWAN
+#define KEY_WIMAX		246
 #define KEY_RFKILL		247	/* Key that controls all radios */
 
 #define KEY_MICMUTE		248	/* Mute / unmute the microphone */
+
+/* Dummy touchkey code */
+#define KEY_DUMMY_HOME1		249
+#define KEY_DUMMY_HOME2		250
+#define KEY_DUMMY_MENU		251
+#define KEY_DUMMY_HOME		252
+#define KEY_DUMMY_BACK		253
+
+#define KEY_RECENT   254
 
 /* Code 255 is reserved for special needs of AT keyboard driver */
 
@@ -513,15 +528,11 @@ struct input_keymap_entry {
 #define BTN_DEAD		0x12f
 
 #define BTN_GAMEPAD		0x130
-#define BTN_SOUTH		0x130
-#define BTN_A			BTN_SOUTH
-#define BTN_EAST		0x131
-#define BTN_B			BTN_EAST
+#define BTN_A			0x130
+#define BTN_B			0x131
 #define BTN_C			0x132
-#define BTN_NORTH		0x133
-#define BTN_X			BTN_NORTH
-#define BTN_WEST		0x134
-#define BTN_Y			BTN_WEST
+#define BTN_X			0x133
+#define BTN_Y			0x134
 #define BTN_Z			0x135
 #define BTN_TL			0x136
 #define BTN_TR			0x137
@@ -532,6 +543,7 @@ struct input_keymap_entry {
 #define BTN_MODE		0x13c
 #define BTN_THUMBL		0x13d
 #define BTN_THUMBR		0x13e
+#define BTN_GAME		0x13f	/* Add game button for samsung bluetooth keypad */
 
 #define BTN_DIGI		0x140
 #define BTN_TOOL_PEN		0x140
@@ -553,6 +565,10 @@ struct input_keymap_entry {
 #define BTN_WHEEL		0x150
 #define BTN_GEAR_DOWN		0x150
 #define BTN_GEAR_UP		0x151
+
+#define BTN_SUBSCREEN_FLAG		0x15D
+#define BTN_R_FLICK_FLAG		0x15E
+#define BTN_L_FLICK_FLAG		0x15F
 
 #define KEY_OK			0x160
 #define KEY_SELECT		0x161
@@ -634,7 +650,6 @@ struct input_keymap_entry {
 #define KEY_ADDRESSBOOK		0x1ad	/* AL Contacts/Address Book */
 #define KEY_MESSENGER		0x1ae	/* AL Instant Messaging */
 #define KEY_DISPLAYTOGGLE	0x1af	/* Turn display (LCD) on and off */
-#define KEY_BRIGHTNESS_TOGGLE	KEY_DISPLAYTOGGLE
 #define KEY_SPELLCHECK		0x1b0   /* AL Spell Check */
 #define KEY_LOGOFF		0x1b1   /* AL Logoff */
 
@@ -653,6 +668,12 @@ struct input_keymap_entry {
 #define KEY_DEL_EOS		0x1c1
 #define KEY_INS_LINE		0x1c2
 #define KEY_DEL_LINE		0x1c3
+#define KEY_REAR_CAMERA_DETECTED	0x1c4	/* Rear Camera launch(MAIN CAM) @ SEC */
+#define KEY_FRONT_CAMERA_DETECTED	0x1c5	/* Front Camera launch(SUB CAM) @ SEC */
+#define KEY_SIDE_GESTURE	0x1c6
+#define KEY_BLACK_UI_GESTURE	0x1c7
+#define KEY_BLACK_UI_QUICKAPP_ACCESS	0x1c8
+#define KEY_BLACK_UI_DIRECT_INDICATOR	0x1c9
 
 #define KEY_FN			0x1d0
 #define KEY_FN_ESC		0x1d1
@@ -719,23 +740,7 @@ struct input_keymap_entry {
 #define KEY_ATTENDANT_TOGGLE	0x21d	/* Attendant call on or off */
 #define KEY_LIGHTS_TOGGLE	0x21e	/* Reading light on or off */
 
-#define BTN_DPAD_UP		0x220
-#define BTN_DPAD_DOWN		0x221
-#define BTN_DPAD_LEFT		0x222
-#define BTN_DPAD_RIGHT		0x223
-
-#define KEY_ALS_TOGGLE		0x230	/* Ambient light sensor */
-
-#define KEY_BUTTONCONFIG		0x240	/* AL Button Configuration */
-#define KEY_TASKMANAGER		0x241	/* AL Task/Project Manager */
-#define KEY_JOURNAL		0x242	/* AL Log/Journal/Timecard */
-#define KEY_CONTROLPANEL		0x243	/* AL Control Panel */
-#define KEY_APPSELECT		0x244	/* AL Select Task/Application */
-#define KEY_SCREENSAVER		0x245	/* AL Screen Saver */
 #define KEY_VOICECOMMAND		0x246	/* Listening Voice Command */
-
-#define KEY_BRIGHTNESS_MIN		0x250	/* Set Brightness to Minimum */
-#define KEY_BRIGHTNESS_MAX		0x251	/* Set Brightness to Maximum */
 
 #define BTN_TRIGGER_HAPPY		0x2c0
 #define BTN_TRIGGER_HAPPY1		0x2c0
@@ -778,6 +783,21 @@ struct input_keymap_entry {
 #define BTN_TRIGGER_HAPPY38		0x2e5
 #define BTN_TRIGGER_HAPPY39		0x2e6
 #define BTN_TRIGGER_HAPPY40		0x2e7
+
+/* SAMSUNG
+ * 0	 3
+ * 1	 4
+ * 2	 5
+ */
+#define KEY_SIDE_TOUCH_0		0x2e8
+#define KEY_SIDE_TOUCH_1		0x2e9
+#define KEY_SIDE_TOUCH_2		0x2ea
+#define KEY_SIDE_TOUCH_3		0x2eb
+#define KEY_SIDE_TOUCH_4		0x2ec
+#define KEY_SIDE_TOUCH_5		0x2ed
+#define KEY_SIDE_TOUCH_6		0x2ee
+#define KEY_SIDE_TOUCH_7		0x2ef
+#define KEY_SIDE_CAMERA_DETECTED	0x2f0
 
 /* We avoid low common keys in module aliases so they don't get huge. */
 #define KEY_MIN_INTERESTING	KEY_MUTE
@@ -850,8 +870,18 @@ struct input_keymap_entry {
 #define ABS_MT_TOOL_X		0x3c	/* Center X tool position */
 #define ABS_MT_TOOL_Y		0x3d	/* Center Y tool position */
 
+#ifdef CONFIG_INPUT_EXPANDED_ABS
+#define ABS_MT_PALM		0x40	/* palm touch */
+#define ABS_MT_GRIP		0x41	/* grip touch */
+
+#define ABS_MAX			0x4f
+#else
+#define ABS_MT_PALM		0x3e	/* palm touch */
+#define ABS_MT_GRIP		0x3f	/* grip touch */
 
 #define ABS_MAX			0x3f
+#endif
+
 #define ABS_CNT			(ABS_MAX+1)
 
 /*
@@ -874,8 +904,18 @@ struct input_keymap_entry {
 #define SW_FRONT_PROXIMITY	0x0b  /* set = front proximity sensor active */
 #define SW_ROTATE_LOCK		0x0c  /* set = rotate locked/disabled */
 #define SW_LINEIN_INSERT	0x0d  /* set = inserted */
-#define SW_MUTE_DEVICE		0x0e  /* set = device disabled */
-#define SW_MAX			0x0f
+
+#define SW_3D_ACC		0x12	/* set = 3d accessory */
+#define SW_PEN_INSERT	0x13	/* set = pen out */
+#define SW_FLIP			0x15	/* set = flip cover */
+#define SW_GLOVE		0x16	/* set = glove mode */
+#define SW_LEFT_HAND	0x17	/* set = left hand*/
+#define SW_RIGHT_HAND	0x18	/* set = right hand*/
+#define SW_BOTH_HAND	0x19	/* set = both hand*/
+#define SW_W1			0x1A	/* set = w1 slave */
+#define	SW_CERTIFYHALL	0x1b	/* set = certify_hall... */
+
+#define SW_MAX			0x20
 #define SW_CNT			(SW_MAX+1)
 
 /*

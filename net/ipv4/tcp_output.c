@@ -51,7 +51,8 @@ int sysctl_tcp_retrans_collapse __read_mostly = 1;
 int sysctl_tcp_workaround_signed_windows __read_mostly = 0;
 
 /* Default TSQ limit of two TSO segments */
-int sysctl_tcp_limit_output_bytes __read_mostly = 131072;
+//int sysctl_tcp_limit_output_bytes __read_mostly = 131072;     // default 128KB
+int sysctl_tcp_limit_output_bytes __read_mostly = 4194304;     // 4MB, For_WiFi_Throughput_enhancement
 
 /* This limits the percentage of the congestion window which we
  * will allow a single TSO frame to consume.  Building TSO frames
@@ -2663,7 +2664,7 @@ struct sk_buff *tcp_make_synack(struct sock *sk, struct dst_entry *dst,
 	int tcp_header_size;
 	int mss;
 
-	skb = sock_wmalloc(sk, MAX_TCP_HEADER + 15, 1, GFP_ATOMIC);
+	skb = alloc_skb(MAX_TCP_HEADER + 15, sk_gfp_atomic(sk, GFP_ATOMIC));
 	if (unlikely(!skb)) {
 		dst_release(dst);
 		return NULL;

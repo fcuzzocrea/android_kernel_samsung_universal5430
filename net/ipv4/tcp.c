@@ -298,6 +298,13 @@ EXPORT_SYMBOL(sysctl_tcp_wmem);
 atomic_long_t tcp_memory_allocated;	/* Current allocated memory. */
 EXPORT_SYMBOL(tcp_memory_allocated);
 
+int sysctl_tcp_delack_seg __read_mostly = TCP_DELACK_SEG;
+EXPORT_SYMBOL(sysctl_tcp_delack_seg);
+
+int sysctl_tcp_use_userconfig __read_mostly;
+EXPORT_SYMBOL(sysctl_tcp_use_userconfig);
+
+
 /*
  * Current number of TCP sockets.
  */
@@ -802,9 +809,10 @@ static unsigned int tcp_xmit_size_goal(struct sock *sk, u32 mss_now,
 				  tp->tcp_header_len);
 
 		/* TSQ : try to have two TSO segments in flight */
+/* For_WiFi_Throughput_enhancement
 		xmit_size_goal = min_t(u32, xmit_size_goal,
 				       sysctl_tcp_limit_output_bytes >> 1);
-
+*/
 		xmit_size_goal = tcp_bound_to_half_wnd(tp, xmit_size_goal);
 
 		/* We try hard to avoid divides here */
@@ -1342,8 +1350,11 @@ void tcp_cleanup_rbuf(struct sock *sk, int copied)
 		   /* Delayed ACKs frequently hit locked sockets during bulk
 		    * receive. */
 		if (icsk->icsk_ack.blocked ||
-		    /* Once-per-two-segments ACK was not sent by tcp_input.c */
-		    tp->rcv_nxt - tp->rcv_wup > icsk->icsk_ack.rcv_mss ||
+		    /* Once-per-sysctl_tcp_delack_seg segments
+			  * ACK was not sent by tcp_input.c
+			  */
+		    tp->rcv_nxt - tp->rcv_wup > (icsk->icsk_ack.rcv_mss) *
+						sysctl_tcp_delack_seg ||
 		    /*
 		     * If this read emptied read buffer, we send ACK, if
 		     * connection is not bidirectional, user drained
@@ -1976,9 +1987,11 @@ void tcp_set_state(struct sock *sk, int state)
 			TCP_INC_STATS(sock_net(sk), TCP_MIB_ESTABRESETS);
 
 		sk->sk_prot->unhash(sk);
+		local_bh_disable();
 		if (inet_csk(sk)->icsk_bind_hash &&
 		    !(sk->sk_userlocks & SOCK_BINDPORT_LOCK))
 			inet_put_port(sk);
+		local_bh_enable();
 		/* fall through */
 	default:
 		if (oldstate == TCP_ESTABLISHED)
@@ -2304,6 +2317,10 @@ int tcp_disconnect(struct sock *sk, int flags)
 	tcp_set_ca_state(sk, TCP_CA_Open);
 	tcp_clear_retrans(tp);
 	inet_csk_delack_init(sk);
+	/* Initialize rcv_mss to TCP_MIN_MSS to avoid division by 0
+	* issue in __tcp_select_window()
+	*/
+	icsk->icsk_ack.rcv_mss = TCP_MIN_MSS;
 	tcp_init_send_head(sk);
 	memset(&tp->rx_opt, 0, sizeof(tp->rx_opt));
 	__sk_dst_reset(sk);
@@ -3367,11 +3384,6 @@ int tcp_abort(struct sock *sk, int err)
 	/* Don't race with userspace socket closes such as tcp_close. */
 	lock_sock(sk);
 
-	if (sk->sk_state == TCP_LISTEN) {
-		tcp_set_state(sk, TCP_CLOSE);
-		inet_csk_listen_stop(sk);
-	}
-
 	/* Don't race with BH socket closes such as inet_csk_listen_stop. */
 	local_bh_disable();
 	bh_lock_sock(sk);
@@ -3387,7 +3399,7 @@ int tcp_abort(struct sock *sk, int err)
 	}
 
 	bh_unlock_sock(sk);
-	local_bh_enable();
+local_bh_enable();
 	release_sock(sk);
 	sock_put(sk);
 	return 0;
@@ -3508,24 +3520,22 @@ void __init tcp_init(void)
 static int tcp_is_local(struct net *net, __be32 addr) {
 	struct rtable *rt;
 	struct flowi4 fl4 = { .daddr = addr };
-	int is_local;
+	int res = 0;
 	rt = ip_route_output_key(net, &fl4);
 	if (IS_ERR_OR_NULL(rt))
 		return 0;
 
-	is_local = rt->dst.dev && (rt->dst.dev->flags & IFF_LOOPBACK);
-	ip_rt_put(rt);
-	return is_local;
+	res = rt->dst.dev && (rt->dst.dev->flags & IFF_LOOPBACK);
+	/* Arp_cache entry increase to 1024 whenever WIFI <-> LTE.
+	So dst_release() is needed to release undestroy dst_entry */
+	dst_release(&rt->dst);
+	return res;
 }
 
 #if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
 static int tcp_is_local6(struct net *net, struct in6_addr *addr) {
 	struct rt6_info *rt6 = rt6_lookup(net, addr, addr, 0, 0);
-	int is_local;
-
-	is_local = rt6 && rt6->dst.dev && (rt6->dst.dev->flags & IFF_LOOPBACK);
-	ip6_rt_put(rt6);
-	return is_local;
+	return rt6 && rt6->dst.dev && (rt6->dst.dev->flags & IFF_LOOPBACK);
 }
 #endif
 
@@ -3539,9 +3549,9 @@ int tcp_nuke_addr(struct net *net, struct sockaddr *addr)
 	int family = addr->sa_family;
 	unsigned int bucket;
 
-	struct in_addr *in;
+	struct in_addr *in = NULL;
 #if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
-	struct in6_addr *in6;
+	struct in6_addr *in6 = NULL;
 #endif
 	if (family == AF_INET) {
 		in = &((struct sockaddr_in *)addr)->sin_addr;
@@ -3553,7 +3563,7 @@ int tcp_nuke_addr(struct net *net, struct sockaddr *addr)
 		return -EAFNOSUPPORT;
 	}
 
-	for (bucket = 0; bucket <= tcp_hashinfo.ehash_mask; bucket++) {
+	for (bucket = 0; bucket < tcp_hashinfo.ehash_mask; bucket++) {
 		struct hlist_nulls_node *node;
 		struct sock *sk;
 		spinlock_t *lock = inet_ehash_lockp(&tcp_hashinfo, bucket);

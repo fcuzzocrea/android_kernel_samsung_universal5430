@@ -423,7 +423,6 @@ el0_da:
 	 * Data abort handling
 	 */
 	mrs	x0, far_el1
-	bic	x0, x0, #(0xff << 56)
 	disable_step x1
 	isb
 	enable_dbg
@@ -596,7 +595,7 @@ fast_work_pending:
 	str	x0, [sp, #S_X0]			// returned x0
 work_pending:
 	tbnz	x1, #TIF_NEED_RESCHED, work_resched
-	/* TIF_SIGPENDING, TIF_NOTIFY_RESUME or TIF_FOREIGN_FPSTATE case */
+	/* TIF_SIGPENDING or TIF_NOTIFY_RESUME case */
 	ldr	x2, [sp, #S_PSTATE]
 	mov	x0, sp				// 'regs'
 	tst	x2, #PSR_MODE_MASK		// user mode regs?
@@ -651,9 +650,8 @@ el0_svc_naked:					// compat entry point
 	enable_irq
 
 	get_thread_info tsk
-	ldr	x16, [tsk, #TI_FLAGS]		// check for syscall hooks
-	tst	x16, #_TIF_SYSCALL_WORK
-	b.ne	__sys_trace
+	ldr	x16, [tsk, #TI_FLAGS]		// check for syscall tracing
+	tbnz	x16, #TIF_SYSCALL_TRACE, __sys_trace // are we tracing syscalls?
 	adr	lr, ret_fast_syscall		// return address
 	cmp     scno, sc_nr                     // check upper syscall limit
 	b.hs	ni_sys

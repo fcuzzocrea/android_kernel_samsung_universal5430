@@ -330,8 +330,7 @@ static netdev_tx_t vti_tunnel_xmit(struct sk_buff *skb, struct net_device *dev)
 			   be32_to_cpu(tunnel->parms.i_key), RT_TOS(tos),
 			   RT_SCOPE_UNIVERSE,
 			   IPPROTO_IPIP, 0,
-			   dst, tiph->saddr, 0, 0,
-			   sock_net_uid(dev_net(dev), NULL));
+			   dst, tiph->saddr, 0, 0);
 	rt = ip_route_output_key(dev_net(dev), &fl4);
 	if (IS_ERR(rt)) {
 		dev->stats.tx_carrier_errors++;
@@ -397,8 +396,7 @@ static int vti_tunnel_bind_dev(struct net_device *dev)
 				   be32_to_cpu(tunnel->parms.i_key),
 				   RT_TOS(iph->tos), RT_SCOPE_UNIVERSE,
 				   IPPROTO_IPIP, 0,
-				   iph->daddr, iph->saddr, 0, 0,
-				   sock_net_uid(dev_net(dev), NULL));
+				   iph->daddr, iph->saddr, 0, 0);
 		rt = ip_route_output_key(dev_net(dev), &fl4);
 		if (!IS_ERR(rt)) {
 			tdev = rt->dst.dev;
@@ -608,16 +606,9 @@ static int __net_init vti_fb_tunnel_init(struct net_device *dev)
 	struct iphdr *iph = &tunnel->parms.iph;
 	struct vti_net *ipn = net_generic(dev_net(dev), vti_net_id);
 
-	tunnel->dev = dev;
-	strcpy(tunnel->parms.name, dev->name);
-
 	iph->version		= 4;
 	iph->protocol		= IPPROTO_IPIP;
 	iph->ihl		= 5;
-
-	dev->tstats = alloc_percpu(struct pcpu_tstats);
-	if (!dev->tstats)
-		return -ENOMEM;
 
 	dev_hold(dev);
 	rcu_assign_pointer(ipn->tunnels_wc[0], tunnel);

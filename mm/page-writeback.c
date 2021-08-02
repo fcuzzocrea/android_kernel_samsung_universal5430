@@ -67,13 +67,13 @@ static long ratelimit_pages = 32;
 /*
  * Start background writeback (via writeback threads) at this percentage
  */
-int dirty_background_ratio = 10;
+int dirty_background_ratio = 0;
 
 /*
  * dirty_background_bytes starts at 0 (disabled) so that it is a function of
  * dirty_background_ratio * the amount of dirtyable memory
  */
-unsigned long dirty_background_bytes;
+unsigned long dirty_background_bytes = 25 * 1024 * 1024;
 
 /*
  * free highmem will not be subtracted from the total free memory
@@ -84,13 +84,13 @@ int vm_highmem_is_dirtyable;
 /*
  * The generator of dirty data starts writeback at this percentage
  */
-int vm_dirty_ratio = 20;
+int vm_dirty_ratio = 0;
 
 /*
  * vm_dirty_bytes starts at 0 (disabled) so that it is a function of
  * vm_dirty_ratio * the amount of dirtyable memory
  */
-unsigned long vm_dirty_bytes;
+unsigned long vm_dirty_bytes = 50 * 1024 * 1024;
 
 /*
  * The interval between `kupdate'-style writebacks
@@ -275,6 +275,13 @@ void global_dirty_limits(unsigned long *pbackground, unsigned long *pdirty)
 		background = DIV_ROUND_UP(dirty_background_bytes, PAGE_SIZE);
 	else
 		background = (dirty_background_ratio * available_memory) / 100;
+#if defined(CONFIG_MIN_DIRTY_THRESH_PAGES) && CONFIG_MIN_DIRTY_THRESH_PAGES > 0
+	if (!vm_dirty_bytes && dirty < CONFIG_MIN_DIRTY_THRESH_PAGES) {
+		dirty = CONFIG_MIN_DIRTY_THRESH_PAGES;
+		if (!dirty_background_bytes)
+			background = dirty / 2;
+	}
+#endif
 
 	if (background >= dirty)
 		background = dirty / 2;
@@ -2250,7 +2257,7 @@ int test_clear_page_writeback(struct page *page)
 	return ret;
 }
 
-int __test_set_page_writeback(struct page *page, bool keep_write)
+int test_set_page_writeback(struct page *page)
 {
 	struct address_space *mapping = page_mapping(page);
 	int ret;
@@ -2272,10 +2279,9 @@ int __test_set_page_writeback(struct page *page, bool keep_write)
 			radix_tree_tag_clear(&mapping->page_tree,
 						page_index(page),
 						PAGECACHE_TAG_DIRTY);
-		if (!keep_write)
-			radix_tree_tag_clear(&mapping->page_tree,
-						page_index(page),
-						PAGECACHE_TAG_TOWRITE);
+		radix_tree_tag_clear(&mapping->page_tree,
+				     page_index(page),
+				     PAGECACHE_TAG_TOWRITE);
 		spin_unlock_irqrestore(&mapping->tree_lock, flags);
 	} else {
 		ret = TestSetPageWriteback(page);
@@ -2285,7 +2291,7 @@ int __test_set_page_writeback(struct page *page, bool keep_write)
 	return ret;
 
 }
-EXPORT_SYMBOL(__test_set_page_writeback);
+EXPORT_SYMBOL(test_set_page_writeback);
 
 /*
  * Return true if any of the pages in the mapping are marked with the

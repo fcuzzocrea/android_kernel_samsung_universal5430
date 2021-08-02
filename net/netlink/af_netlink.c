@@ -2168,8 +2168,6 @@ static int netlink_recvmsg(struct kiocb *kiocb, struct socket *sock,
 	}
 #endif
 
-	msg->msg_namelen = 0;
-
 	copied = data_skb->len;
 	if (len < copied) {
 		msg->msg_flags |= MSG_TRUNC;
@@ -2498,7 +2496,6 @@ int __netlink_dump_start(struct sock *ssk, struct sk_buff *skb,
 	} else
 		atomic_inc(&skb->users);
 
-	cb->start = control->start;
 	cb->dump = control->dump;
 	cb->done = control->done;
 	cb->nlh = nlh;
@@ -2532,9 +2529,6 @@ int __netlink_dump_start(struct sock *ssk, struct sk_buff *skb,
 
 	nlk->cb = cb;
 	mutex_unlock(nlk->cb_mutex);
-
-	if (cb->start)
-		cb->start(cb);
 
 	ret = netlink_dump(sk);
 out:

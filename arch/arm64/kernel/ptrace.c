@@ -216,13 +216,13 @@ static int ptrace_hbp_fill_attr_ctrl(unsigned int note_type,
 				     struct arch_hw_breakpoint_ctrl ctrl,
 				     struct perf_event_attr *attr)
 {
-	int err, len, type, offset, disabled = !ctrl.enabled;
+	int err, len, type, disabled = !ctrl.enabled;
 
 	if (disabled) {
 		len = 0;
 		type = HW_BREAKPOINT_EMPTY;
-        } else {
-		err = arch_bp_generic_fields(ctrl, &len, &type, &offset);
+	} else {
+		err = arch_bp_generic_fields(ctrl, &len, &type);
 		if (err)
 			return err;
 
@@ -243,7 +243,6 @@ static int ptrace_hbp_fill_attr_ctrl(unsigned int note_type,
 	attr->bp_len	= len;
 	attr->bp_type	= type;
 	attr->disabled	= disabled;
-	attr->bp_addr	+= offset;
 
 	return 0;
 }
@@ -296,7 +295,7 @@ static int ptrace_hbp_get_addr(unsigned int note_type,
 	if (IS_ERR(bp))
 		return PTR_ERR(bp);
 
-	*addr = bp ? counter_arch_bp(bp)->address : 0;
+	*addr = bp ? bp->attr.bp_addr : 0;
 	return 0;
 }
 
@@ -524,7 +523,6 @@ static int fpr_set(struct task_struct *target, const struct user_regset *regset,
 		return ret;
 
 	target->thread.fpsimd_state.user_fpsimd = newstate;
-	fpsimd_flush_task_state(target);
 	return ret;
 }
 
@@ -642,34 +640,28 @@ static int compat_gpr_get(struct task_struct *target,
 
 	for (i = 0; i < num_regs; ++i) {
 		unsigned int idx = start + i;
-		compat_ulong_t reg;
+		void *reg;
 
 		switch (idx) {
 		case 15:
-			reg = task_pt_regs(target)->pc;
+			reg = (void *)&task_pt_regs(target)->pc;
 			break;
 		case 16:
-			reg = task_pt_regs(target)->pstate;
+			reg = (void *)&task_pt_regs(target)->pstate;
 			break;
 		case 17:
-			reg = task_pt_regs(target)->orig_x0;
+			reg = (void *)&task_pt_regs(target)->orig_x0;
 			break;
 		default:
-			reg = task_pt_regs(target)->regs[idx];
+			reg = (void *)&task_pt_regs(target)->regs[idx];
 		}
 
-		if (kbuf) {
-			memcpy(kbuf, &reg, sizeof(reg));
-			kbuf += sizeof(reg);
-		} else {
-			ret = copy_to_user(ubuf, &reg, sizeof(reg));
-			if (ret) {
-				ret = -EFAULT;
-				break;
-			}
+		ret = copy_to_user(ubuf, reg, sizeof(compat_ulong_t));
 
-			ubuf += sizeof(reg);
-		}
+		if (ret)
+			break;
+		else
+			ubuf += sizeof(compat_ulong_t);
 	}
 
 	return ret;
@@ -697,35 +689,28 @@ static int compat_gpr_set(struct task_struct *target,
 
 	for (i = 0; i < num_regs; ++i) {
 		unsigned int idx = start + i;
-		compat_ulong_t reg;
-
-		if (kbuf) {
-			memcpy(&reg, kbuf, sizeof(reg));
-			kbuf += sizeof(reg);
-		} else {
-			ret = copy_from_user(&reg, ubuf, sizeof(reg));
-			if (ret) {
-				ret = -EFAULT;
-				break;
-			}
-
-			ubuf += sizeof(reg);
-		}
+		void *reg;
 
 		switch (idx) {
 		case 15:
-			newregs.pc = reg;
+			reg = (void *)&newregs.pc;
 			break;
 		case 16:
-			newregs.pstate = reg;
+			reg = (void *)&newregs.pstate;
 			break;
 		case 17:
-			newregs.orig_x0 = reg;
+			reg = (void *)&newregs.orig_x0;
 			break;
 		default:
-			newregs.regs[idx] = reg;
+			reg = (void *)&newregs.regs[idx];
 		}
 
+		ret = copy_from_user(reg, ubuf, sizeof(compat_ulong_t));
+
+		if (ret)
+			goto out;
+		else
+			ubuf += sizeof(compat_ulong_t);
 	}
 
 	if (valid_user_regs(&newregs.user_regs))
@@ -733,6 +718,7 @@ static int compat_gpr_set(struct task_struct *target,
 	else
 		ret = -EINVAL;
 
+out:
 	return ret;
 }
 
@@ -786,7 +772,6 @@ static int compat_vfp_set(struct task_struct *target,
 		uregs->fpcr = fpscr & VFP_FPSCR_CTRL_MASK;
 	}
 
-	fpsimd_flush_task_state(target);
 	return ret;
 }
 
@@ -1078,19 +1063,7 @@ const struct user_regset_view *task_user_regset_view(struct task_struct *task)
 long arch_ptrace(struct task_struct *child, long request,
 		 unsigned long addr, unsigned long data)
 {
-	int ret;
-
-	switch (request) {
-		case PTRACE_SET_SYSCALL:
-			task_pt_regs(child)->syscallno = data;
-			ret = 0;
-			break;
-		default:
-			ret = ptrace_request(child, request, addr, data);
-			break;
-	}
-
-	return ret;
+	return ptrace_request(child, request, addr, data);
 }
 
 enum ptrace_syscall_dir {

@@ -122,7 +122,7 @@ static void quota2_log(unsigned int hooknum,
 }
 #endif  /* if+else CONFIG_NETFILTER_XT_MATCH_QUOTA2_LOG */
 
-static ssize_t quota_proc_read(struct file *file, char __user *buf,
+static int quota_proc_read(struct file *file, char __user *buf,
 			   size_t size, loff_t *ppos)
 {
 	struct xt_quota_counter *e = PDE_DATA(file_inode(file));
@@ -135,7 +135,7 @@ static ssize_t quota_proc_read(struct file *file, char __user *buf,
 	return simple_read_from_buffer(buf, size, ppos, tmp, tmp_size);
 }
 
-static ssize_t quota_proc_write(struct file *file, const char __user *input,
+static int quota_proc_write(struct file *file, const char __user *input,
                             size_t size, loff_t *ppos)
 {
 	struct xt_quota_counter *e = PDE_DATA(file_inode(file));
@@ -306,7 +306,15 @@ quota_mt2(const struct sk_buff *skb, struct xt_action_param *par)
 		if (e->quota >= skb->len) {
 			if (!(q->flags & XT_QUOTA_NO_CHANGE))
 				e->quota -= (q->flags & XT_QUOTA_PACKET) ? 1 : skb->len;
-			ret = !ret;
+
+			if (!e->quota) {
+			  	quota2_log(par->hooknum,
+					   skb,
+					   par->in,
+					   par->out,
+					   q->name);
+			} else
+				ret = !ret;
 		} else {
 			/* We are transitioning, log that fact. */
 			if (e->quota) {

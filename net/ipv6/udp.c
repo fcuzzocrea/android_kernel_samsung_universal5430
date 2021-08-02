@@ -375,10 +375,10 @@ int udpv6_recvmsg(struct kiocb *iocb, struct sock *sk,
 	bool slow;
 
 	if (flags & MSG_ERRQUEUE)
-		return ipv6_recv_error(sk, msg, len, addr_len);
+		return ipv6_recv_error(sk, msg, len);
 
 	if (np->rxpmtu && np->rxopt.bits.rxpmtu)
-		return ipv6_recv_rxpmtu(sk, msg, len, addr_len);
+		return ipv6_recv_rxpmtu(sk, msg, len);
 
 try_again:
 	skb = __skb_recv_datagram(sk, flags | (noblock ? MSG_DONTWAIT : 0),
@@ -411,7 +411,8 @@ try_again:
 		err = skb_copy_datagram_iovec(skb, sizeof(struct udphdr),
 					      msg->msg_iov, copied);
 	else {
-		err = skb_copy_and_csum_datagram_iovec(skb, sizeof(struct udphdr), msg->msg_iov);
+		err = skb_copy_and_csum_datagram_iovec(skb, sizeof(struct udphdr),
+						       msg->msg_iov, copied);
 		if (err == -EINVAL)
 			goto csum_copy_err;
 	}
@@ -952,10 +953,15 @@ static int udp_v6_push_pending_frames(struct sock *sk)
 	struct udphdr *uh;
 	struct udp_sock  *up = udp_sk(sk);
 	struct inet_sock *inet = inet_sk(sk);
-	struct flowi6 *fl6 = &inet->cork.fl.u.ip6;
+	struct flowi6 *fl6;
 	int err = 0;
 	int is_udplite = IS_UDPLITE(sk);
 	__wsum csum = 0;
+
+	if (up->pending == AF_INET)
+		return udp_push_pending_frames(sk);
+
+	fl6 = &inet->cork.fl.u.ip6;
 
 	/* Grab the skbuff where UDP header space exists. */
 	if ((skb = skb_peek(&sk->sk_write_queue)) == NULL)
@@ -1145,7 +1151,7 @@ do_udp_sendmsg:
 		fl6.flowi6_oif = np->sticky_pktinfo.ipi6_ifindex;
 
 	fl6.flowi6_mark = sk->sk_mark;
-	fl6.flowi6_uid = sk->sk_uid;
+	fl6.flowi6_uid = sock_i_uid(sk);
 
 	if (msg->msg_controllen) {
 		opt = &opt_space;
@@ -1476,7 +1482,6 @@ struct proto udpv6_prot = {
 	.compat_getsockopt = compat_udpv6_getsockopt,
 #endif
 	.clear_sk	   = udp_v6_clear_sk,
-	.diag_destroy      = udp_abort,
 };
 
 static struct inet_protosw udpv6_protosw = {
